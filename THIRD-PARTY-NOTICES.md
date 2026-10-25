@@ -1,0 +1,424 @@
+# Third-party notices
+
+LEVIATHAN: AGPL-3.0-only (LICENSE). Cargo.lock pins the dependency graph.
+DEPENDENCIES.tsv records declared license expressions for the resolved cross-platform graph.
+Package notices and upstream license texts are provided in licenses/.
+licenses/upstream/provenance.json records immutable commits for workspace-level notices, including embedded-font license texts.
+No audio assets or upstream implementation sources are distributed here.
+
+- [ab_glyph 0.2.32](licenses/ab_glyph-0.2.32/PACKAGE-NOTICE.md): Apache-2.0.
+- [ab_glyph_rasterizer 0.1.10](licenses/ab_glyph_rasterizer-0.1.10/PACKAGE-NOTICE.md): Apache-2.0.
+- [adler2 2.0.1](licenses/adler2-2.0.1/PACKAGE-NOTICE.md): 0BSD OR MIT OR Apache-2.0.
+- [ahash 0.8.12](licenses/ahash-0.8.12/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [aho-corasick 1.1.5](licenses/aho-corasick-1.1.5/PACKAGE-NOTICE.md): Unlicense OR MIT.
+- [alsa 0.11.0](licenses/alsa-0.11.0/PACKAGE-NOTICE.md): Apache-2.0/MIT.
+- [alsa-sys 0.4.0](licenses/alsa-sys-0.4.0/PACKAGE-NOTICE.md): MIT.
+- [android-activity 0.6.1](licenses/android-activity-0.6.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [android-properties 0.2.2](licenses/android-properties-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [arboard 3.7.0](licenses/arboard-3.7.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [arrayvec 0.7.8](licenses/arrayvec-0.7.8/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [as-raw-xcb-connection 1.0.1](licenses/as-raw-xcb-connection-1.0.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [asio-sys 0.2.6](licenses/asio-sys-0.2.6/PACKAGE-NOTICE.md): Apache-2.0.
+- [assume 0.5.0](licenses/assume-0.5.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [atomic-waker 1.1.2](licenses/atomic-waker-1.1.2/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [audio_thread_priority 0.34.0](licenses/audio_thread_priority-0.34.0/PACKAGE-NOTICE.md): MPL-2.0.
+- [autocfg 1.5.1](licenses/autocfg-1.5.1/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [basedrop 0.1.3](licenses/basedrop-0.1.3/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [bindgen 0.72.1](licenses/bindgen-0.72.1/PACKAGE-NOTICE.md): BSD-3-Clause.
+- [bit-set 0.8.0](licenses/bit-set-0.8.0/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [bit-vec 0.8.0](licenses/bit-vec-0.8.0/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [bitflags 1.3.2](licenses/bitflags-1.3.2/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [bitflags 2.13.2](licenses/bitflags-2.13.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [block2 0.5.1](licenses/block2-0.5.1/PACKAGE-NOTICE.md): MIT.
+- [block2 0.6.2](licenses/block2-0.6.2/PACKAGE-NOTICE.md): MIT.
+- [bumpalo 3.20.3](licenses/bumpalo-3.20.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [bytemuck 1.25.2](licenses/bytemuck-1.25.2/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [bytemuck_derive 1.12.1](licenses/bytemuck_derive-1.12.1/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [byteorder 1.5.0](licenses/byteorder-1.5.0/PACKAGE-NOTICE.md): Unlicense OR MIT.
+- [byteorder-lite 0.1.0](licenses/byteorder-lite-0.1.0/PACKAGE-NOTICE.md): Unlicense OR MIT.
+- [bytes 1.12.1](licenses/bytes-1.12.1/PACKAGE-NOTICE.md): MIT.
+- [calloop 0.13.0](licenses/calloop-0.13.0/PACKAGE-NOTICE.md): MIT.
+- [calloop 0.14.5](licenses/calloop-0.14.5/PACKAGE-NOTICE.md): MIT.
+- [calloop-wayland-source 0.3.0](licenses/calloop-wayland-source-0.3.0/PACKAGE-NOTICE.md): MIT.
+- [calloop-wayland-source 0.4.1](licenses/calloop-wayland-source-0.4.1/PACKAGE-NOTICE.md): MIT.
+- [cc 1.10.0](licenses/cc-1.10.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [cesu8 1.1.0](licenses/cesu8-1.1.0/PACKAGE-NOTICE.md): Apache-2.0/MIT.
+- [cexpr 0.6.0](licenses/cexpr-0.6.0/PACKAGE-NOTICE.md): Apache-2.0/MIT.
+- [cfg-if 1.0.5](licenses/cfg-if-1.0.5/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [cfg_aliases 0.2.2](licenses/cfg_aliases-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [cgl 0.3.2](licenses/cgl-0.3.2/PACKAGE-NOTICE.md): MIT / Apache-2.0.
+- [clang-sys 1.9.1](licenses/clang-sys-1.9.1/PACKAGE-NOTICE.md): Apache-2.0.
+- [clipboard-win 5.4.3](licenses/clipboard-win-5.4.3/PACKAGE-NOTICE.md): BSL-1.0.
+- [codespan-reporting 0.12.0](licenses/codespan-reporting-0.12.0/PACKAGE-NOTICE.md): Apache-2.0.
+- [combine 4.6.9](licenses/combine-4.6.9/PACKAGE-NOTICE.md): MIT.
+- [concurrent-queue 2.5.0](licenses/concurrent-queue-2.5.0/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [convert_case 0.10.0](licenses/convert_case-0.10.0/PACKAGE-NOTICE.md): MIT.
+- [core-foundation 0.9.4](licenses/core-foundation-0.9.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [core-foundation-sys 0.8.7](licenses/core-foundation-sys-0.8.7/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [core-graphics 0.23.2](licenses/core-graphics-0.23.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [core-graphics-types 0.1.3](licenses/core-graphics-types-0.1.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [core_detect 1.0.0](licenses/core_detect-1.0.0/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [coreaudio-rs 0.14.2](licenses/coreaudio-rs-0.14.2/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [cpal 0.17.3](licenses/cpal-0.17.3/PACKAGE-NOTICE.md): Apache-2.0.
+- [crc32fast 1.5.3](licenses/crc32fast-1.5.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [crossbeam-channel 0.5.17](licenses/crossbeam-channel-0.5.17/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [crossbeam-queue 0.3.14](licenses/crossbeam-queue-0.3.14/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [crossbeam-utils 0.8.23](licenses/crossbeam-utils-0.8.23/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [crunchy 0.2.4](licenses/crunchy-0.2.4/PACKAGE-NOTICE.md): MIT.
+- [cursor-icon 1.2.0](licenses/cursor-icon-1.2.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR Zlib.
+- [dashmap 6.2.1](licenses/dashmap-6.2.1/PACKAGE-NOTICE.md): MIT.
+- [dasp_sample 0.11.0](licenses/dasp_sample-0.11.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/sample/.
+- [derive_more 2.1.1](licenses/derive_more-2.1.1/PACKAGE-NOTICE.md): MIT.
+- [derive_more-impl 2.1.1](licenses/derive_more-impl-2.1.1/PACKAGE-NOTICE.md): MIT.
+- [dispatch 0.2.0](licenses/dispatch-0.2.0/PACKAGE-NOTICE.md): MIT.
+- [dispatch2 0.3.1](licenses/dispatch2-0.3.1/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [displaydoc 0.2.7](licenses/displaydoc-0.2.7/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [dlib 0.5.3](licenses/dlib-0.5.3/PACKAGE-NOTICE.md): MIT.
+- [document-features 0.2.12](licenses/document-features-0.2.12/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [downcast-rs 1.2.1](licenses/downcast-rs-1.2.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [dpi 0.1.2](licenses/dpi-0.1.2/PACKAGE-NOTICE.md): Apache-2.0 AND MIT.
+- [ecolor 0.33.3](licenses/ecolor-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
+- [eframe 0.33.3](licenses/eframe-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
+- [egui 0.33.3](licenses/egui-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
+- [egui-wgpu 0.33.3](licenses/egui-wgpu-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
+- [egui-winit 0.33.3](licenses/egui-winit-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
+- [egui_glow 0.33.3](licenses/egui_glow-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
+- [either 1.19.0](licenses/either-1.19.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [emath 0.33.3](licenses/emath-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
+- [emscripten-rs-macros 0.1.2](licenses/emscripten-rs-macros-0.1.2/PACKAGE-NOTICE.md): MIT.
+- [emscripten_rs_sys 0.1.3](licenses/emscripten_rs_sys-0.1.3/PACKAGE-NOTICE.md): MIT.
+- [encoding_rs 0.8.42](licenses/encoding_rs-0.8.42/PACKAGE-NOTICE.md): (Apache-2.0 OR MIT) AND BSD-3-Clause.
+- [epaint 0.33.3](licenses/epaint-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
+- [epaint_default_fonts 0.33.3](licenses/epaint_default_fonts-0.33.3/PACKAGE-NOTICE.md): (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0. Workspace notices: licenses/upstream/egui/.
+- [equivalent 1.0.3](licenses/equivalent-1.0.3/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [errno 0.3.14](licenses/errno-0.3.14/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [error-code 3.4.0](licenses/error-code-3.4.0/PACKAGE-NOTICE.md): BSL-1.0.
+- [extended 0.1.0](licenses/extended-0.1.0/PACKAGE-NOTICE.md): MIT.
+- [fax 0.2.7](licenses/fax-0.2.7/PACKAGE-NOTICE.md): MIT.
+- [fdeflate 0.3.7](licenses/fdeflate-0.3.7/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [find-msvc-tools 0.1.15](licenses/find-msvc-tools-0.1.15/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [flate2 1.1.10](licenses/flate2-1.1.10/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [foldhash 0.2.0](licenses/foldhash-0.2.0/PACKAGE-NOTICE.md): Zlib.
+- [foreign-types 0.5.0](licenses/foreign-types-0.5.0/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [foreign-types-macros 0.2.4](licenses/foreign-types-macros-0.2.4/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [foreign-types-shared 0.3.1](licenses/foreign-types-shared-0.3.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [form_urlencoded 1.2.2](licenses/form_urlencoded-1.2.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [four-cc 0.4.0](licenses/four-cc-0.4.0/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [futures-core 0.3.34](licenses/futures-core-0.3.34/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [futures-task 0.3.34](licenses/futures-task-0.3.34/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [futures-util 0.3.34](licenses/futures-util-0.3.34/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [gethostname 1.1.0](licenses/gethostname-1.1.0/PACKAGE-NOTICE.md): Apache-2.0.
+- [getrandom 0.3.4](licenses/getrandom-0.3.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [getrandom 0.4.3](licenses/getrandom-0.4.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [gl_generator 0.14.0](licenses/gl_generator-0.14.0/PACKAGE-NOTICE.md): Apache-2.0. Workspace notices: licenses/upstream/gl/.
+- [glob 0.3.4](licenses/glob-0.3.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [glow 0.16.0](licenses/glow-0.16.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR Zlib.
+- [glutin 0.32.3](licenses/glutin-0.32.3/PACKAGE-NOTICE.md): Apache-2.0.
+- [glutin-winit 0.5.0](licenses/glutin-winit-0.5.0/PACKAGE-NOTICE.md): MIT.
+- [glutin_egl_sys 0.7.1](licenses/glutin_egl_sys-0.7.1/PACKAGE-NOTICE.md): Apache-2.0.
+- [glutin_glx_sys 0.6.1](licenses/glutin_glx_sys-0.6.1/PACKAGE-NOTICE.md): Apache-2.0.
+- [glutin_wgl_sys 0.6.1](licenses/glutin_wgl_sys-0.6.1/PACKAGE-NOTICE.md): Apache-2.0.
+- [half 2.7.1](licenses/half-2.7.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [hashbrown 0.14.5](licenses/hashbrown-0.14.5/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [hashbrown 0.16.1](licenses/hashbrown-0.16.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [hashbrown 0.17.1](licenses/hashbrown-0.17.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [heck 0.5.0](licenses/heck-0.5.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [hermit-abi 0.5.3](licenses/hermit-abi-0.5.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [hexf-parse 0.2.1](licenses/hexf-parse-0.2.1/PACKAGE-NOTICE.md): CC0-1.0.
+- [hound 3.5.1](licenses/hound-3.5.1/PACKAGE-NOTICE.md): Apache-2.0.
+- [icu_collections 2.4.0](licenses/icu_collections-2.4.0/PACKAGE-NOTICE.md): Unicode-3.0.
+- [icu_locale_core 2.4.0](licenses/icu_locale_core-2.4.0/PACKAGE-NOTICE.md): Unicode-3.0.
+- [icu_normalizer 2.4.0](licenses/icu_normalizer-2.4.0/PACKAGE-NOTICE.md): Unicode-3.0.
+- [icu_normalizer_data 2.4.0](licenses/icu_normalizer_data-2.4.0/PACKAGE-NOTICE.md): Unicode-3.0.
+- [icu_properties 2.4.0](licenses/icu_properties-2.4.0/PACKAGE-NOTICE.md): Unicode-3.0.
+- [icu_properties_data 2.4.0](licenses/icu_properties_data-2.4.0/PACKAGE-NOTICE.md): Unicode-3.0.
+- [icu_provider 2.4.0](licenses/icu_provider-2.4.0/PACKAGE-NOTICE.md): Unicode-3.0.
+- [idna 1.1.0](licenses/idna-1.1.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [idna_adapter 1.2.2](licenses/idna_adapter-1.2.2/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [image 0.25.10](licenses/image-0.25.10/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [indexmap 2.14.2](licenses/indexmap-2.14.2/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [itertools 0.13.0](licenses/itertools-0.13.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [itoa 1.0.18](licenses/itoa-1.0.18/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [jack 0.13.5](licenses/jack-0.13.5/PACKAGE-NOTICE.md): MIT.
+- [jack-sys 0.5.1](licenses/jack-sys-0.5.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [jni 0.21.1](licenses/jni-0.21.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [jni 0.22.4](licenses/jni-0.22.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [jni-macros 0.22.4](licenses/jni-macros-0.22.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [jni-sys 0.3.1](licenses/jni-sys-0.3.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [jni-sys 0.4.1](licenses/jni-sys-0.4.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [jni-sys-macros 0.4.1](licenses/jni-sys-macros-0.4.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [jobserver 0.1.35](licenses/jobserver-0.1.35/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [js-sys 0.3.106](licenses/js-sys-0.3.106/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [khronos_api 3.1.0](licenses/khronos_api-3.1.0/PACKAGE-NOTICE.md): Apache-2.0. Workspace notices: licenses/upstream/gl/.
+- [lazy_static 1.5.1](licenses/lazy_static-1.5.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [libc 0.2.191](licenses/libc-0.2.191/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [libloading 0.7.4](licenses/libloading-0.7.4/PACKAGE-NOTICE.md): ISC.
+- [libloading 0.8.9](licenses/libloading-0.8.9/PACKAGE-NOTICE.md): ISC.
+- [libm 0.2.16](licenses/libm-0.2.16/PACKAGE-NOTICE.md): MIT.
+- [libredox 0.1.25](licenses/libredox-0.1.25/PACKAGE-NOTICE.md): MIT.
+- [linux-raw-sys 0.12.1](licenses/linux-raw-sys-0.12.1/PACKAGE-NOTICE.md): Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT.
+- [linux-raw-sys 0.4.15](licenses/linux-raw-sys-0.4.15/PACKAGE-NOTICE.md): Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT.
+- [litemap 0.8.3](licenses/litemap-0.8.3/PACKAGE-NOTICE.md): Unicode-3.0.
+- [litrs 1.0.1](licenses/litrs-1.0.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [lock_api 0.4.14](licenses/lock_api-0.4.14/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [log 0.4.34](licenses/log-0.4.34/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [mach2 0.4.3](licenses/mach2-0.4.3/PACKAGE-NOTICE.md): BSD-2-Clause OR MIT OR Apache-2.0.
+- [mach2 0.5.0](licenses/mach2-0.5.0/PACKAGE-NOTICE.md): BSD-2-Clause OR MIT OR Apache-2.0.
+- [memchr 2.8.3](licenses/memchr-2.8.3/PACKAGE-NOTICE.md): Unlicense OR MIT.
+- [memmap2 0.9.12](licenses/memmap2-0.9.12/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [memoffset 0.9.1](licenses/memoffset-0.9.1/PACKAGE-NOTICE.md): MIT.
+- [minimal-lexical 0.2.1](licenses/minimal-lexical-0.2.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [miniz_oxide 0.8.9](licenses/miniz_oxide-0.8.9/PACKAGE-NOTICE.md): MIT OR Zlib OR Apache-2.0.
+- [miniz_oxide 0.9.1](licenses/miniz_oxide-0.9.1/PACKAGE-NOTICE.md): MIT OR Zlib OR Apache-2.0.
+- [moxcms 0.8.1](licenses/moxcms-0.8.1/PACKAGE-NOTICE.md): BSD-3-Clause OR Apache-2.0.
+- [multiversion_no_op 1.0.0](licenses/multiversion_no_op-1.0.0/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [naga 27.0.3](licenses/naga-27.0.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [ndk 0.9.0](licenses/ndk-0.9.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [ndk-context 0.1.1](licenses/ndk-context-0.1.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [ndk-sys 0.6.0+11769913](licenses/ndk-sys-0.6.0+11769913/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [nohash-hasher 0.2.0](licenses/nohash-hasher-0.2.0/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [nom 7.1.3](licenses/nom-7.1.3/PACKAGE-NOTICE.md): MIT.
+- [num-complex 0.4.6](licenses/num-complex-0.4.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [num-derive 0.4.2](licenses/num-derive-0.4.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [num-integer 0.1.47](licenses/num-integer-0.1.47/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [num-rational 0.4.2](licenses/num-rational-0.4.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [num-traits 0.2.19](licenses/num-traits-0.2.19/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [num_cpus 1.17.0](licenses/num_cpus-1.17.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [num_enum 0.7.6](licenses/num_enum-0.7.6/PACKAGE-NOTICE.md): BSD-3-Clause OR MIT OR Apache-2.0.
+- [num_enum_derive 0.7.6](licenses/num_enum_derive-0.7.6/PACKAGE-NOTICE.md): BSD-3-Clause OR MIT OR Apache-2.0.
+- [objc-sys 0.3.5](licenses/objc-sys-0.3.5/PACKAGE-NOTICE.md): MIT.
+- [objc2 0.5.3](licenses/objc2-0.5.3/PACKAGE-NOTICE.md): MIT.
+- [objc2 0.6.5](licenses/objc2-0.6.5/PACKAGE-NOTICE.md): MIT.
+- [objc2-app-kit 0.2.2](licenses/objc2-app-kit-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-app-kit 0.3.2](licenses/objc2-app-kit-0.3.2/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [objc2-audio-toolbox 0.3.2](licenses/objc2-audio-toolbox-0.3.2/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [objc2-avf-audio 0.3.2](licenses/objc2-avf-audio-0.3.2/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [objc2-cloud-kit 0.2.2](licenses/objc2-cloud-kit-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-contacts 0.2.2](licenses/objc2-contacts-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-core-audio 0.3.2](licenses/objc2-core-audio-0.3.2/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [objc2-core-audio-types 0.3.2](licenses/objc2-core-audio-types-0.3.2/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [objc2-core-data 0.2.2](licenses/objc2-core-data-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-core-foundation 0.3.2](licenses/objc2-core-foundation-0.3.2/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [objc2-core-graphics 0.3.2](licenses/objc2-core-graphics-0.3.2/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [objc2-core-image 0.2.2](licenses/objc2-core-image-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-core-location 0.2.2](licenses/objc2-core-location-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-encode 4.1.0](licenses/objc2-encode-4.1.0/PACKAGE-NOTICE.md): MIT.
+- [objc2-foundation 0.2.2](licenses/objc2-foundation-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-foundation 0.3.2](licenses/objc2-foundation-0.3.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-io-surface 0.3.2](licenses/objc2-io-surface-0.3.2/PACKAGE-NOTICE.md): Zlib OR Apache-2.0 OR MIT.
+- [objc2-link-presentation 0.2.2](licenses/objc2-link-presentation-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-metal 0.2.2](licenses/objc2-metal-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-quartz-core 0.2.2](licenses/objc2-quartz-core-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-symbols 0.2.2](licenses/objc2-symbols-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-ui-kit 0.2.2](licenses/objc2-ui-kit-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-uniform-type-identifiers 0.2.2](licenses/objc2-uniform-type-identifiers-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [objc2-user-notifications 0.2.2](licenses/objc2-user-notifications-0.2.2/PACKAGE-NOTICE.md): MIT.
+- [once_cell 1.21.4](licenses/once_cell-1.21.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [orbclient 0.3.55](licenses/orbclient-0.3.55/PACKAGE-NOTICE.md): MIT.
+- [owned_ttf_parser 0.25.1](licenses/owned_ttf_parser-0.25.1/PACKAGE-NOTICE.md): Apache-2.0.
+- [panic-message 0.3.0](licenses/panic-message-0.3.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [parking_lot 0.12.5](licenses/parking_lot-0.12.5/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [parking_lot_core 0.9.12](licenses/parking_lot_core-0.9.12/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [parse_cfg 4.1.1](licenses/parse_cfg-4.1.1/PACKAGE-NOTICE.md): CC0-1.0 OR MIT.
+- [paste 1.0.15](licenses/paste-1.0.15/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [pattrns 0.9.3](licenses/pattrns-0.9.3/PACKAGE-NOTICE.md): GNU AFFERO.
+- [percent-encoding 2.3.2](licenses/percent-encoding-2.3.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [pest 2.9.4](licenses/pest-2.9.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [pest_derive 2.9.4](licenses/pest_derive-2.9.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [pest_generator 2.9.4](licenses/pest_generator-2.9.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [pest_meta 2.9.4](licenses/pest_meta-2.9.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [phonic 0.16.0](licenses/phonic-0.16.0/PACKAGE-NOTICE.md): 	AGPL-3.0.
+- [pin-project 1.1.13](licenses/pin-project-1.1.13/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [pin-project-internal 1.1.13](licenses/pin-project-internal-1.1.13/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [pin-project-lite 0.2.17](licenses/pin-project-lite-0.2.17/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [pkg-config 0.3.34](licenses/pkg-config-0.3.34/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [plain 0.2.3](licenses/plain-0.2.3/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [png 0.18.1](licenses/png-0.18.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [polling 3.11.0](licenses/polling-3.11.0/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [portable-atomic 1.15.0](licenses/portable-atomic-1.15.0/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [portable-atomic-util 0.2.8](licenses/portable-atomic-util-0.2.8/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [potential_utf 0.1.6](licenses/potential_utf-0.1.6/PACKAGE-NOTICE.md): Unicode-3.0.
+- [ppv-lite86 0.2.21](licenses/ppv-lite86-0.2.21/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [prettyplease 0.2.37](licenses/prettyplease-0.2.37/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [proc-macro-crate 3.5.0](licenses/proc-macro-crate-3.5.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [proc-macro2 1.0.107](licenses/proc-macro2-1.0.107/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [profiling 1.0.18](licenses/profiling-1.0.18/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/profiling/.
+- [psm 0.1.24](licenses/psm-0.1.24/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [pulp 0.21.5](licenses/pulp-0.21.5/PACKAGE-NOTICE.md): MIT. Workspace notices: licenses/upstream/pulp/.
+- [pulp-macro 0.1.1](licenses/pulp-macro-0.1.1/PACKAGE-NOTICE.md): MIT. Workspace notices: licenses/upstream/pulp/.
+- [pxfm 0.1.30](licenses/pxfm-0.1.30/PACKAGE-NOTICE.md): BSD-3-Clause OR Apache-2.0.
+- [quick-error 2.0.1](licenses/quick-error-2.0.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [quick-xml 0.41.0](licenses/quick-xml-0.41.0/PACKAGE-NOTICE.md): MIT.
+- [quote 1.0.47](licenses/quote-1.0.47/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [r-efi 5.3.0](licenses/r-efi-5.3.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR LGPL-2.1-or-later.
+- [r-efi 6.0.0](licenses/r-efi-6.0.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR LGPL-2.1-or-later.
+- [rand 0.9.5](licenses/rand-0.9.5/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [rand_chacha 0.9.0](licenses/rand_chacha-0.9.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [rand_core 0.9.5](licenses/rand_core-0.9.5/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [rand_xoshiro 0.7.0](licenses/rand_xoshiro-0.7.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [raw-window-handle 0.6.2](licenses/raw-window-handle-0.6.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR Zlib.
+- [rb 0.4.1](licenses/rb-0.4.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [reborrow 0.5.5](licenses/reborrow-0.5.5/PACKAGE-NOTICE.md): MIT.
+- [redox_syscall 0.4.1](licenses/redox_syscall-0.4.1/PACKAGE-NOTICE.md): MIT.
+- [redox_syscall 0.5.18](licenses/redox_syscall-0.5.18/PACKAGE-NOTICE.md): MIT.
+- [redox_syscall 0.9.5](licenses/redox_syscall-0.9.5/PACKAGE-NOTICE.md): MIT.
+- [regex 1.13.1](licenses/regex-1.13.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [regex-automata 0.4.18](licenses/regex-automata-0.4.18/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [regex-syntax 0.8.11](licenses/regex-syntax-0.8.11/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [renderdoc-sys 1.1.0](licenses/renderdoc-sys-1.1.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [riff 2.0.0](licenses/riff-2.0.0/PACKAGE-NOTICE.md): MIT.
+- [rubato 0.16.2](licenses/rubato-0.16.2/PACKAGE-NOTICE.md): MIT.
+- [rustc-hash 1.1.0](licenses/rustc-hash-1.1.0/PACKAGE-NOTICE.md): Apache-2.0/MIT.
+- [rustc-hash 2.1.3](licenses/rustc-hash-2.1.3/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [rustc_version 0.4.1](licenses/rustc_version-0.4.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [rustix 0.38.44](licenses/rustix-0.38.44/PACKAGE-NOTICE.md): Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT.
+- [rustix 1.1.5](licenses/rustix-1.1.5/PACKAGE-NOTICE.md): Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT.
+- [rustversion 1.0.23](licenses/rustversion-1.0.23/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [same-file 1.0.6](licenses/same-file-1.0.6/PACKAGE-NOTICE.md): Unlicense/MIT.
+- [scoped-tls 1.0.1](licenses/scoped-tls-1.0.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [scopeguard 1.2.0](licenses/scopeguard-1.2.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [semver 1.0.28](licenses/semver-1.0.28/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [serde 1.0.229](licenses/serde-1.0.229/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [serde_core 1.0.229](licenses/serde_core-1.0.229/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [serde_derive 1.0.229](licenses/serde_derive-1.0.229/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [serde_json 1.0.154](licenses/serde_json-1.0.154/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [shlex 1.3.0](licenses/shlex-1.3.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [shlex 2.0.1](licenses/shlex-2.0.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [simd-adler32 0.3.10](licenses/simd-adler32-0.3.10/PACKAGE-NOTICE.md): MIT.
+- [simd_cesu8 1.2.0](licenses/simd_cesu8-1.2.0/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [simdutf8 0.1.5](licenses/simdutf8-0.1.5/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [slab 0.4.12](licenses/slab-0.4.12/PACKAGE-NOTICE.md): MIT.
+- [slotmap 1.1.1](licenses/slotmap-1.1.1/PACKAGE-NOTICE.md): Zlib.
+- [smallvec 1.16.4](licenses/smallvec-1.16.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [smithay-client-toolkit 0.19.2](licenses/smithay-client-toolkit-0.19.2/PACKAGE-NOTICE.md): MIT.
+- [smithay-client-toolkit 0.20.0](licenses/smithay-client-toolkit-0.20.0/PACKAGE-NOTICE.md): MIT.
+- [smithay-clipboard 0.7.3](licenses/smithay-clipboard-0.7.3/PACKAGE-NOTICE.md): MIT.
+- [smol_str 0.2.2](licenses/smol_str-0.2.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [stable_deref_trait 1.2.1](licenses/stable_deref_trait-1.2.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [stacker 0.1.25](licenses/stacker-0.1.25/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [static_assertions 1.1.0](licenses/static_assertions-1.1.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [strum 0.28.0](licenses/strum-0.28.0/PACKAGE-NOTICE.md): MIT.
+- [strum_macros 0.28.0](licenses/strum_macros-0.28.0/PACKAGE-NOTICE.md): MIT.
+- [symphonia 0.5.5](licenses/symphonia-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia-bundle-flac 0.5.5](licenses/symphonia-bundle-flac-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia-bundle-mp3 0.5.5](licenses/symphonia-bundle-mp3-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia-codec-adpcm 0.5.5](licenses/symphonia-codec-adpcm-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia-codec-alac 0.5.5](licenses/symphonia-codec-alac-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia-codec-pcm 0.5.5](licenses/symphonia-codec-pcm-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia-core 0.5.5](licenses/symphonia-core-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia-format-ogg 0.5.5](licenses/symphonia-format-ogg-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia-format-riff 0.5.5](licenses/symphonia-format-riff-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia-metadata 0.5.5](licenses/symphonia-metadata-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia-utils-xiph 0.5.5](licenses/symphonia-utils-xiph-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [syn 2.0.119](licenses/syn-2.0.119/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [syn 3.0.9](licenses/syn-3.0.9/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [synstructure 0.14.0](licenses/synstructure-0.14.0/PACKAGE-NOTICE.md): MIT.
+- [thiserror 1.0.69](licenses/thiserror-1.0.69/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [thiserror 2.0.21](licenses/thiserror-2.0.21/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [thiserror-impl 1.0.69](licenses/thiserror-impl-1.0.69/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [thiserror-impl 2.0.21](licenses/thiserror-impl-2.0.21/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [tiff 0.11.3](licenses/tiff-0.11.3/PACKAGE-NOTICE.md): MIT.
+- [tinystr 0.8.5](licenses/tinystr-0.8.5/PACKAGE-NOTICE.md): Unicode-3.0.
+- [tokio 1.54.1](licenses/tokio-1.54.1/PACKAGE-NOTICE.md): MIT.
+- [toml_datetime 1.1.2+spec-1.1.0](licenses/toml_datetime-1.1.2+spec-1.1.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [toml_edit 0.25.17+spec-1.1.0](licenses/toml_edit-0.25.17+spec-1.1.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [toml_parser 1.1.5+spec-1.1.0](licenses/toml_parser-1.1.5+spec-1.1.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [tracing 0.1.44](licenses/tracing-0.1.44/PACKAGE-NOTICE.md): MIT.
+- [tracing-core 0.1.36](licenses/tracing-core-0.1.36/PACKAGE-NOTICE.md): MIT.
+- [ttf-parser 0.25.1](licenses/ttf-parser-0.25.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [type-map 0.5.1](licenses/type-map-0.5.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [ucd-trie 0.1.7](licenses/ucd-trie-0.1.7/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [unicode-ident 1.0.27](licenses/unicode-ident-1.0.27/PACKAGE-NOTICE.md): (MIT OR Apache-2.0) AND Unicode-3.0.
+- [unicode-segmentation 1.13.3](licenses/unicode-segmentation-1.13.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [unicode-width 0.2.2](licenses/unicode-width-0.2.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [unicode-xid 0.2.6](licenses/unicode-xid-0.2.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [url 2.5.8](licenses/url-2.5.8/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [utf8_iter 1.0.4](licenses/utf8_iter-1.0.4/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
+- [version_check 0.9.5](licenses/version_check-0.9.5/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [walkdir 2.5.0](licenses/walkdir-2.5.0/PACKAGE-NOTICE.md): Unlicense/MIT.
+- [wasip2 1.0.4+wasi-0.2.12](licenses/wasip2-1.0.4+wasi-0.2.12/PACKAGE-NOTICE.md): Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT.
+- [wasm-bindgen 0.2.129](licenses/wasm-bindgen-0.2.129/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [wasm-bindgen-futures 0.4.79](licenses/wasm-bindgen-futures-0.4.79/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [wasm-bindgen-macro 0.2.129](licenses/wasm-bindgen-macro-0.2.129/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [wasm-bindgen-macro-support 0.2.129](licenses/wasm-bindgen-macro-support-0.2.129/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [wasm-bindgen-shared 0.2.129](licenses/wasm-bindgen-shared-0.2.129/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [wayland-backend 0.3.17](licenses/wayland-backend-0.3.17/PACKAGE-NOTICE.md): MIT.
+- [wayland-client 0.31.15](licenses/wayland-client-0.31.15/PACKAGE-NOTICE.md): MIT.
+- [wayland-csd-frame 0.3.0](licenses/wayland-csd-frame-0.3.0/PACKAGE-NOTICE.md): MIT.
+- [wayland-cursor 0.31.14](licenses/wayland-cursor-0.31.14/PACKAGE-NOTICE.md): MIT.
+- [wayland-protocols 0.32.13](licenses/wayland-protocols-0.32.13/PACKAGE-NOTICE.md): MIT.
+- [wayland-protocols-experimental 20250721.0.1](licenses/wayland-protocols-experimental-20250721.0.1/PACKAGE-NOTICE.md): MIT.
+- [wayland-protocols-misc 0.3.12](licenses/wayland-protocols-misc-0.3.12/PACKAGE-NOTICE.md): MIT.
+- [wayland-protocols-plasma 0.3.12](licenses/wayland-protocols-plasma-0.3.12/PACKAGE-NOTICE.md): MIT.
+- [wayland-protocols-wlr 0.3.12](licenses/wayland-protocols-wlr-0.3.12/PACKAGE-NOTICE.md): MIT.
+- [wayland-scanner 0.31.11](licenses/wayland-scanner-0.31.11/PACKAGE-NOTICE.md): MIT.
+- [wayland-sys 0.31.11](licenses/wayland-sys-0.31.11/PACKAGE-NOTICE.md): MIT.
+- [web-sys 0.3.106](licenses/web-sys-0.3.106/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [web-time 1.1.0](licenses/web-time-1.1.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [webbrowser 1.2.5](licenses/webbrowser-1.2.5/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [weezl 0.1.12](licenses/weezl-0.1.12/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [wgpu 27.0.1](licenses/wgpu-27.0.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [wgpu-core 27.0.3](licenses/wgpu-core-27.0.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [wgpu-core-deps-windows-linux-android 27.0.0](licenses/wgpu-core-deps-windows-linux-android-27.0.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [wgpu-hal 27.0.4](licenses/wgpu-hal-27.0.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [wgpu-types 27.0.1](licenses/wgpu-types-27.0.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [which 8.0.6](licenses/which-8.0.6/PACKAGE-NOTICE.md): MIT.
+- [winapi 0.3.9](licenses/winapi-0.3.9/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [winapi-i686-pc-windows-gnu 0.4.0](licenses/winapi-i686-pc-windows-gnu-0.4.0/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [winapi-util 0.1.11](licenses/winapi-util-0.1.11/PACKAGE-NOTICE.md): Unlicense OR MIT.
+- [winapi-x86_64-pc-windows-gnu 0.4.0](licenses/winapi-x86_64-pc-windows-gnu-0.4.0/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [windows 0.62.2](licenses/windows-0.62.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-collections 0.3.2](licenses/windows-collections-0.3.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-core 0.62.2](licenses/windows-core-0.62.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-future 0.3.2](licenses/windows-future-0.3.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-implement 0.60.2](licenses/windows-implement-0.60.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-interface 0.59.3](licenses/windows-interface-0.59.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-link 0.2.1](licenses/windows-link-0.2.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-numerics 0.3.1](licenses/windows-numerics-0.3.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-result 0.4.1](licenses/windows-result-0.4.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-strings 0.5.1](licenses/windows-strings-0.5.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-sys 0.45.0](licenses/windows-sys-0.45.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-sys 0.52.0](licenses/windows-sys-0.52.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-sys 0.61.2](licenses/windows-sys-0.61.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-targets 0.42.2](licenses/windows-targets-0.42.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-targets 0.52.6](licenses/windows-targets-0.52.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows-threading 0.2.1](licenses/windows-threading-0.2.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_aarch64_gnullvm 0.42.2](licenses/windows_aarch64_gnullvm-0.42.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_aarch64_gnullvm 0.52.6](licenses/windows_aarch64_gnullvm-0.52.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_aarch64_msvc 0.42.2](licenses/windows_aarch64_msvc-0.42.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_aarch64_msvc 0.52.6](licenses/windows_aarch64_msvc-0.52.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_i686_gnu 0.42.2](licenses/windows_i686_gnu-0.42.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_i686_gnu 0.52.6](licenses/windows_i686_gnu-0.52.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_i686_gnullvm 0.52.6](licenses/windows_i686_gnullvm-0.52.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_i686_msvc 0.42.2](licenses/windows_i686_msvc-0.42.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_i686_msvc 0.52.6](licenses/windows_i686_msvc-0.52.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_x86_64_gnu 0.42.2](licenses/windows_x86_64_gnu-0.42.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_x86_64_gnu 0.52.6](licenses/windows_x86_64_gnu-0.52.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_x86_64_gnullvm 0.42.2](licenses/windows_x86_64_gnullvm-0.42.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_x86_64_gnullvm 0.52.6](licenses/windows_x86_64_gnullvm-0.52.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_x86_64_msvc 0.42.2](licenses/windows_x86_64_msvc-0.42.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [windows_x86_64_msvc 0.52.6](licenses/windows_x86_64_msvc-0.52.6/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [winit 0.30.13](licenses/winit-0.30.13/PACKAGE-NOTICE.md): Apache-2.0.
+- [winnow 1.0.4](licenses/winnow-1.0.4/PACKAGE-NOTICE.md): MIT.
+- [wit-bindgen 0.57.1](licenses/wit-bindgen-0.57.1/PACKAGE-NOTICE.md): Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT.
+- [writeable 0.6.4](licenses/writeable-0.6.4/PACKAGE-NOTICE.md): Unicode-3.0.
+- [x11-dl 2.21.0](licenses/x11-dl-2.21.0/PACKAGE-NOTICE.md): MIT.
+- [x11rb 0.13.2](licenses/x11rb-0.13.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [x11rb-protocol 0.13.2](licenses/x11rb-protocol-0.13.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [xcursor 0.3.11](licenses/xcursor-0.3.11/PACKAGE-NOTICE.md): MIT.
+- [xkbcommon-dl 0.4.2](licenses/xkbcommon-dl-0.4.2/PACKAGE-NOTICE.md): MIT.
+- [xkeysym 0.2.1](licenses/xkeysym-0.2.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR Zlib.
+- [xml-rs 0.8.29](licenses/xml-rs-0.8.29/PACKAGE-NOTICE.md): MIT.
+- [yoke 0.8.4](licenses/yoke-0.8.4/PACKAGE-NOTICE.md): Unicode-3.0.
+- [yoke-derive 0.8.4](licenses/yoke-derive-0.8.4/PACKAGE-NOTICE.md): Unicode-3.0.
+- [zerocopy 0.8.63](licenses/zerocopy-0.8.63/PACKAGE-NOTICE.md): BSD-2-Clause OR Apache-2.0 OR MIT.
+- [zerocopy-derive 0.8.63](licenses/zerocopy-derive-0.8.63/PACKAGE-NOTICE.md): BSD-2-Clause OR Apache-2.0 OR MIT.
+- [zerofrom 0.1.8](licenses/zerofrom-0.1.8/PACKAGE-NOTICE.md): Unicode-3.0.
+- [zerofrom-derive 0.1.8](licenses/zerofrom-derive-0.1.8/PACKAGE-NOTICE.md): Unicode-3.0.
+- [zerotrie 0.2.5](licenses/zerotrie-0.2.5/PACKAGE-NOTICE.md): Unicode-3.0.
+- [zerovec 0.11.9](licenses/zerovec-0.11.9/PACKAGE-NOTICE.md): Unicode-3.0.
+- [zerovec-derive 0.11.7](licenses/zerovec-derive-0.11.7/PACKAGE-NOTICE.md): Unicode-3.0.
+- [zlib-rs 0.6.8](licenses/zlib-rs-0.6.8/PACKAGE-NOTICE.md): Zlib.
+- [zmij 1.0.23](licenses/zmij-1.0.23/PACKAGE-NOTICE.md): MIT.
+- [zune-core 0.5.3](licenses/zune-core-0.5.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR Zlib.
+- [zune-jpeg 0.5.15](licenses/zune-jpeg-0.5.15/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR Zlib.

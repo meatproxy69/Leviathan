@@ -1,0 +1,38 @@
+[package]
+name = "aqua-pattern-core"
+version = "0.1.0-alpha.1"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[dependencies]
+crossbeam-queue = "=0.3.14"
+cpal = { version = "=0.17.3", optional = true }
+image = { version = "=0.25.10", optional = true, default-features = false, features = ["png"] }
+eframe = { version = "=0.33.3", optional = true, default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+pattrns = { git = "https://github.com/renoise/pattrns.git", rev = "8505bfe09111d4123a202af5222466f55021db9f", default-features = false }
+phonic = { version = "=0.16.0", default-features = false, features = ["wav-output"] }
+hound = "=3.5.1"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+
+[features]
+desktop = ["dep:eframe", "dep:image", "realtime"]
+realtime = ["phonic/cpal-output", "dep:cpal"]
+
+[[bin]]
+name = "realtime_probe"
+path = "src/bin/realtime_probe.rs"
+required-features = ["realtime"]
+
+[[bin]]
+name = "leviathan"
+path = "src/bin/leviathan.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "transport_probe"
+path = "src/bin/transport_probe.rs"
+required-features = ["realtime"]
+
+[profile.release]
+strip = "symbols"
