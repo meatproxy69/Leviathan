@@ -1,31 +1,137 @@
-# LEVIATHAN — Alpha 1
+<div align="center">
 
-A native Rust tracker/sequencer with editable patterns, instrument phrases,
-arrangement aliases, committed groove and seeded pattrns generation.
+# LEVIATHAN
 
-**Version: 0.1.0-alpha.1.** Early alpha: keep backups and expect rough edges.
-This release contains **no audio samples, recordings or sample-backed demo projects**.
-Use your own audio files. No accounts, audio-device settings or system services
-are configured by the application.
+### Agent-first music creation. No MCP needed.
 
-## Download and run
+A native Rust tracker and sequencer for editable patterns, phrases, arrangement, groove, and seeded generation.
 
-The release provides a Linux x86_64 GNU build and complete source archives.
-The prebuilt Linux binary requires **glibc 2.43 or newer**, ALSA, an OpenGL/EGL-capable
-driver and a Wayland/X11 desktop. Tested on a recent Arch-based Linux host with
-Rust 1.99.1. Older Linux distributions should build from source; Windows/macOS
-binaries are not provided or verified in this alpha.
+[![Alpha 1](https://img.shields.io/badge/release-Alpha_1-66ddcc)](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.1)
+[![Linux x86_64](https://img.shields.io/badge/binary-Linux_x86__64-82aaff)](#download-alpha-1)
+[![AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-aaaaaa)](LICENSE)
 
-Extract the Linux archive into a writable directory, then:
+**[Download Alpha 1](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.1)** · **[Install](#install-on-linux)** · **[Try a demo](#try-a-song-in-three-commands)** · **[Agent workflow](#agent-first-no-mcp-required)**
+
+![LEVIATHAN Alpha 1 tracker showing editable notes and the song order](docs/images/tracker.png)
+
+*Real Alpha 1 screenshots with locally generated synthetic tones.*
+
+</div>
+
+## Make patterns. Shape a song.
+
+Write notes directly in the tracker, build instrument phrases, and arrange shared
+patterns into sections. Preview groove and seeded generation, then commit the
+results as ordinary editable cells. Play the song in the native editor or render
+it from the command line.
+
+| Workspace | What you can do |
+| --- | --- |
+| **Tracker** | Enter notes, velocity, pan, delay, step effects, and phrase triggers. |
+| **Phrases** | Build instrument-owned, one-shot polyphonic phrases. |
+| **Arrange** | Repeat, clone, alias, mute occurrences, and create section variations. |
+| **Transform** | Preview transpose, velocity/pan edits, row reversal, and groove. |
+| **Generate** | Preview seeded Euclidean/probability patterns and save recipes. |
+| **Audio / Export** | Assign your samples and export WAV audio plus an event manifest. |
+
+<details>
+<summary><strong>See arrangement and generation screenshots</strong></summary>
+
+### Arrange sections and shared patterns
+
+![Arrangement workspace with Verse, Bridge, a return variation, aliases, and an occurrence mute](docs/images/arrangement.png)
+
+### Preview generation before committing
+
+![Generation workspace showing a seeded sequence and the affected cells](docs/images/generation.png)
+
+</details>
+
+## Download Alpha 1
+
+**Version `v0.1.0-alpha.1` · Early alpha · Keep backups of your projects.**
+
+| Download | Use it for |
+| --- | --- |
+| **[Linux x86_64 binary (.tar.gz)](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/leviathan-v0.1.0-alpha.1-linux-x86_64.tar.gz)** | Run the native editor and bundled CLI tools. |
+| [Source (.tar.gz)](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/leviathan-v0.1.0-alpha.1-source.tar.gz) · [Source (.zip)](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/leviathan-v0.1.0-alpha.1-source.zip) | Build Alpha 1 yourself; tests and Cargo.lock included. |
+| [SHA256SUMS](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/SHA256SUMS) | Verify your download. |
+
+**Linux binary requirements:** x86_64 GNU/Linux, **glibc 2.43 or newer**, ALSA,
+an OpenGL/EGL-capable driver, and a Wayland/X11 desktop. Check glibc with
+`ldd --version`. Older distributions should [build from source](#build-from-source).
+Windows/macOS binaries are not provided or verified in this alpha.
+
+**No samples or recordings are bundled.** Bring your own audio, or generate the
+optional synthetic demo locally using the commands below.
+
+## Install on Linux
+
+Download and extract into a writable directory. No system installation is required.
+Run these commands in a new directory:
 
 ```sh
+curl -fLO https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/leviathan-v0.1.0-alpha.1-linux-x86_64.tar.gz
+curl -fLO https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+# Continue only when the Linux archive reports OK.
+tar -xzf leviathan-v0.1.0-alpha.1-linux-x86_64.tar.gz
+cd leviathan-v0.1.0-alpha.1-linux-x86_64
 ./run-leviathan.sh
-# Or open your own saved project:
-./run-leviathan.sh --project /path/to/song.leviathan.json
 ```
 
-`SHA256SUMS` accompanies the release assets. Keep LICENSE, THIRD-PARTY-NOTICES.md,
-licenses/ and the other bundled documentation with redistributed binaries.
+You can also download the two files with your browser and extract the archive
+with your file manager. Open an existing project with:
+
+```sh
+./run-leviathan.sh --project /absolute/path/to/song.leviathan.json
+```
+
+Keep `LICENSE`, `THIRD-PARTY-NOTICES.md`, `licenses/`, and the bundled documentation
+with redistributed binaries. The application does not configure accounts,
+audio-device settings, or system services.
+
+## Try a song in three commands
+
+From the extracted package directory:
+
+```sh
+./bin/song_demo my-first-song --generate
+./bin/render_song my-first-song/first-current.leviathan.json my-first-song/listen.wav
+./bin/leviathan --project my-first-song/first-current.leviathan.json
+```
+
+The first command creates synthetic kick, hat, bass, and lead sounds **on your
+machine**, plus an editable project and reference render. The second renders a
+fresh WAV; the third opens the project in the editor. Press **Play song** to listen.
+Use a new demo directory and new output filename each time; existing destinations
+are refused. No personal or commercial sample library is downloaded or distributed.
+
+## Agent-first: no MCP required
+
+LEVIATHAN is **agent-first**: local coding agents can work with saved
+`.leviathan.json` projects and invoke the included command-line tools directly.
+**No MCP server, MCP plugin, or MCP configuration is needed to use LEVIATHAN.**
+The native editor works on the same project files.
+
+An agent can generate a reproducible example with `song_demo`, inspect and edit
+its project JSON, render it with `render_song`, and open it for human review with
+`leviathan --project`. Projects are validated on load; keep the sample references
+valid and render to a new output path. Seeded generation commits notes into cells,
+so playback does not rerun the generator.
+
+| Command in the extracted package | Purpose |
+| --- | --- |
+| `./bin/leviathan --help` | Editor launch options. |
+| `./bin/leviathan --project PROJECT.json` | Open a saved project. |
+| `./bin/render_song PROJECT.json NEW_OUTPUT.wav` | Render a project without modifying it. |
+| `./bin/song_demo NEW_DIRECTORY --generate` | Create a synthetic example with committed generation. |
+| `./bin/transport_probe PROJECT.json` | Run bounded playback/seek/loop/stop diagnostics. |
+
+`song_demo` also accepts `--effects`, `--phrases`, `--arrangement`, or `--groove`.
+The package retains `aqua-pattern-core`, a legacy fixed-motif CLI independent of
+the editable project. Alpha 1 provides files and commands for agent workflows;
+it does not include an embedded AI agent or agent orchestration service.
 
 ## Make a first song
 
@@ -72,17 +178,6 @@ cargo fmt --all --check
 
 For offline builds add `--offline` after populating the Cargo cache. Headless tests
 and rendering do not require the optional desktop feature.
-
-## Included command-line tools
-
-- `leviathan`: native editor; `--project PATH`, `--help`, `--version`.
-- `render_song PROJECT.json NEW_OUTPUT.wav`: render your saved song without changing it.
-- `song_demo NEW_DIRECTORY [--effects | --phrases | --arrangement | --groove | --generate]`:
-  locally generate synthetic test tones and a reproducible editable example. No
-  commercial/user sample library is distributed. Every destination must be new.
-- `transport_probe PROJECT`: bounded diagnostic playback/seek/loop/stop check.
-- `aqua-pattern-core`: legacy fixed-motif CLI retained for compatibility; independent
-  of the editable song project. Source also includes diagnostic/example tools.
 
 ## Architecture and supported scope
 
