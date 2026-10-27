@@ -48,12 +48,23 @@ fn absolute(path: &Path) -> Result<PathBuf, String> {
             .map_err(|e| e.to_string())?
             .join(path)
     };
-    let parent = path
-        .parent()
-        .ok_or("Project needs a parent directory")?
-        .canonicalize()
-        .map_err(|e| format!("Project directory: {e}"))?;
-    let parent = normal_path(parent);
+    let parent = path.parent().ok_or("Project needs a parent directory")?;
+    // Preserve Windows 8.3 and symlink spellings when resolving relative
+    // references, while still verifying that the directory exists.
+    #[cfg(windows)]
+    let parent = {
+        let metadata = std::fs::metadata(parent).map_err(|e| format!("Project directory: {e}"))?;
+        if !metadata.is_dir() {
+            return Err("Project directory is not a directory".into());
+        }
+        std::path::absolute(parent).map_err(|e| format!("Project directory: {e}"))?
+    };
+    #[cfg(not(windows))]
+    let parent = normal_path(
+        parent
+            .canonicalize()
+            .map_err(|e| format!("Project directory: {e}"))?,
+    );
     Ok(parent.join(path.file_name().ok_or("Project needs a filename")?))
 }
 /// Bound reads and reject symlinks for project files (asset references may resolve normally).
@@ -118,8 +129,15 @@ fn assets(song: &mut Song, base: &Path, loading: bool) -> Result<(), String> {
                             .map(|name| normal_path(parent).join(name))
                     })
                     .unwrap_or_else(|| resolved.clone());
-                comparable
+                let canonical_base = base.canonicalize().map(normal_path).ok();
+                resolved
                     .strip_prefix(base)
+                    .ok()
+                    .or_else(|| {
+                        canonical_base
+                            .as_ref()
+                            .and_then(|base| comparable.strip_prefix(base).ok())
+                    })
                     .unwrap_or(&resolved)
                     .to_owned()
             });
