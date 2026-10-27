@@ -9,6 +9,13 @@ pub fn grid_id() -> egui::Id {
 }
 /// Only the explicitly focused grid receives musical keys. Text/path widgets retain theirs.
 pub fn keyboard(editor: &mut Editor, ctx: &egui::Context) -> Result<(), String> {
+    keyboard_with_instrument(editor, ctx, None)
+}
+fn keyboard_with_instrument(
+    editor: &mut Editor,
+    ctx: &egui::Context,
+    instrument: Option<crate::song::InstrumentId>,
+) -> Result<(), String> {
     if !editor.has_grid() || !ctx.memory(|m| m.has_focus(grid_id())) {
         return Ok(());
     }
@@ -72,7 +79,17 @@ pub fn keyboard(editor: &mut Editor, ctx: &egui::Context) -> Result<(), String> 
                     if let Some(offset) = keys.iter().position(|k| *k == key) {
                         let pitch = (editor.octave as u16 + 1) * 12 + offset as u16;
                         if pitch <= 127 {
-                            editor.enter_note(Note::Note(pitch as u8))?;
+                            if let Some(instrument) =
+                                instrument.filter(|id| editor.song.instruments.contains_key(id))
+                            {
+                                let mut cell = editor.cell();
+                                cell.note = Note::Note(pitch as u8);
+                                cell.instrument = Some(instrument);
+                                editor.set_cell(cell)?;
+                                editor.move_rows(editor.edit_step as i64);
+                            } else {
+                                editor.enter_note(Note::Note(pitch as u8))?;
+                            }
                         }
                     }
                 }
@@ -108,6 +125,8 @@ pub struct TrackerUi {
     pub editor: Editor,
     /// Playback snapshot occurrence/row, independent of the edit cursor.
     pub playhead: Option<(usize, u32)>,
+    /// Instrument selected in the tracker for newly entered notes.
+    pub selected_instrument: Option<crate::song::InstrumentId>,
     value: String,
     scroll_to_cursor: bool,
     prior_selection: Option<(usize, crate::song::TrackId)>,
@@ -130,26 +149,26 @@ impl TrackerUi {
         }
         ui.spacing_mut().item_spacing = egui::vec2(5.0, 4.0);
         ui.horizontal_wrapped(|ui| {
-            ui.heading("Pattern editor");
+            ui.strong(format!("PATTERN {} · {}", self.editor.pattern_id().0, self.editor.pattern().name));
             ui.checkbox(&mut self.editor.edit_mode, "Edit Mode");
             ui.label("Step");
             ui.add(egui::DragValue::new(&mut self.editor.edit_step).range(0..=64));
             ui.label("Octave");
             ui.add(egui::DragValue::new(&mut self.editor.octave).range(0..=9));
-            ui.colored_label(
-                Color32::from_rgb(230, 183, 105),
-                "Song editor • snapshot playback / offline export",
-            );
+            ui.label(RichText::new("Keyboard help ⓘ").small()).on_hover_text("Click a grid field to focus. Arrows / Tab navigate; Z–M enter notes; ` enters OFF; Delete clears a field; Shift+Delete clears a cell; Space toggles Edit Mode.");
         });
-        ui.label(RichText::new("Click a grid field to focus • arrows / Tab navigate • Z–M notes • ` OFF • Del clears field • Shift+Del clears cell • Space toggles Edit Mode").small());
+        let id = self.editor.pattern_id();
+        if let Ok(source) = self.editor.song.block_source(id, self.editor.track) {
+            if source.pattern != id || source.track != self.editor.track {
+                ui.colored_label(Color32::YELLOW, format!("Alias edits source P{} / T{}. Use Arrangement → Make unique for local edits.", source.pattern.0, source.track.0));
+            }
+        }
+        egui::CollapsingHeader::new("Pattern and selected field controls")
+            .default_open(false)
+            .show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             let id = self.editor.pattern_id();
             ui.label(format!("Pattern {} · {}", id.0, self.editor.pattern().name));
-            if let Ok(source) = self.editor.song.block_source(id, self.editor.track) {
-                if source.pattern != id || source.track != self.editor.track {
-                    ui.colored_label(Color32::YELLOW, format!("Alias edits source P{} / T{}. Use Arrangement → Make unique for local edits.", source.pattern.0, source.track.0));
-                }
-            }
             ui.label(format!("Rows {}", self.editor.pattern().rows));
             ui.add(
                 egui::TextEdit::singleline(&mut self.row_input)
@@ -218,6 +237,7 @@ impl TrackerUi {
         if self.editor.field == Field::Phrase {
             ui.label(RichText::new("Phrase: enter an ID owned by the selected instrument. The note transposes its root; blank plays the sample directly. Delay/cut work on the trigger; other FX belong inside the phrase.").small());
         }
+            });
         if let Some(error) = &self.error {
             ui.colored_label(Color32::LIGHT_RED, error);
         }
@@ -225,15 +245,10 @@ impl TrackerUi {
         let height = ui.available_height().max(100.0);
         ui.horizontal_top(|ui| {
             ui.allocate_ui_with_layout(
-                egui::vec2(235.0, height),
+                egui::vec2(160.0, height),
                 egui::Layout::top_down(egui::Align::Min),
                 |ui| {
-                    ui.strong("ORDER / TRACK MATRIX");
-                    ui.label(
-                        RichText::new("Block = track content at occurrence")
-                            .small()
-                            .weak(),
-                    );
+                    ui.strong("ORDER");
                     ui.horizontal(|ui| {
                         if ui
                             .add_enabled(self.editor.edit_mode, egui::Button::new("+ Repeat"))
@@ -256,7 +271,7 @@ impl TrackerUi {
                         if ui
                             .add_enabled(
                                 self.editor.edit_mode && self.editor.occurrence > 0,
-                                egui::Button::new("Move up"),
+                                egui::Button::new("Up"),
                             )
                             .clicked()
                         {
@@ -267,7 +282,7 @@ impl TrackerUi {
                             .add_enabled(
                                 self.editor.edit_mode
                                     && self.editor.occurrence + 1 < self.editor.song.order.len(),
-                                egui::Button::new("Move down"),
+                                egui::Button::new("Down"),
                             )
                             .clicked()
                         {
@@ -329,13 +344,8 @@ impl TrackerUi {
                                     }
                                 });
                         });
-                    ui.label(
-                        RichText::new(
-                            "Repeated pattern IDs share edits.
-Aliases share source edits. Arrangement workspace controls sections and occurrence mutes. Playback uses a start snapshot.",
-                        )
-                        .small()
-                        .weak(),
+                    ui.label(RichText::new("Order help ⓘ").small().weak()).on_hover_text(
+                        "Repeated patterns and aliases share edits. Use Arrange for sections and occurrence mutes."
                     );
                 },
             );
@@ -343,9 +353,6 @@ Aliases share source edits. Arrangement workspace controls sections and occurren
             ui.vertical(|ui| {
                 let rows = self.editor.pattern().rows;
                 let mut selected_rect = None;
-                ui.monospace(
-                    "NOTE    INS    VOL    PAN    DELAY    FX    PHR   |   each group is one note column",
-                );
                 let mut scroll = egui::ScrollArea::both().id_salt("tracker-scroll");
                 if self.scroll_to_cursor {
                     self.scroll_to_cursor = false;
@@ -359,7 +366,7 @@ Aliases share source edits. Arrangement workspace controls sections and occurren
                     }
                     scroll = scroll
                         .vertical_scroll_offset(self.editor.row.saturating_sub(4) as f32 * 23.0)
-                        .horizontal_scroll_offset(index as f32 * 530.0);
+                        .horizontal_scroll_offset(index as f32 * 364.0);
                 }
                 scroll.auto_shrink([false, false]).show_rows(
                     ui,
@@ -397,7 +404,7 @@ Aliases share source edits. Arrangement workspace controls sections and occurren
                                         {
                                             if line == 0 {
                                                 for name in [
-                                                    format!("T{}:{} Note", track.0, column + 1),
+                                                    format!("T{}:{}", track.0, column + 1),
                                                     "Ins".into(),
                                                     "Vol".into(),
                                                     "Pan".into(),
@@ -431,16 +438,16 @@ Aliases share source edits. Arrangement workspace controls sections and occurren
                                                     let response = ui.add_sized(
                                                         [
                                                             if field == Field::Effects {
-                                                                170.0
+                                                                72.0
                                                             } else if field == Field::Note {
-                                                                81.0
+                                                                48.0
                                                             } else if matches!(
                                                                 field,
-                                                                Field::Pan | Field::Delay
+                                                                Field::Velocity | Field::Pan | Field::Delay
                                                             ) {
-                                                                64.0
+                                                                50.0
                                                             } else {
-                                                                46.0
+                                                                32.0
                                                             },
                                                             21.0,
                                                         ],
@@ -449,6 +456,13 @@ Aliases share source edits. Arrangement workspace controls sections and occurren
                                                                 .monospace()
                                                                 .color(color),
                                                         )
+                                                        .fill(if selected {
+                                                            Color32::from_rgb(63, 104, 90)
+                                                        } else if row.is_multiple_of(4) {
+                                                            Color32::from_rgb(35, 59, 65)
+                                                        } else {
+                                                            Color32::from_rgb(8, 13, 16)
+                                                        })
                                                         .selected(selected)
                                                         .truncate(),
                                                     );
@@ -511,7 +525,7 @@ Aliases share source edits. Arrangement workspace controls sections and occurren
         });
         let before = (self.editor.row, self.editor.track, self.editor.column);
         let r = if ui.is_enabled() {
-            keyboard(&mut self.editor, ui.ctx())
+            keyboard_with_instrument(&mut self.editor, ui.ctx(), self.selected_instrument)
         } else {
             Ok(())
         };
@@ -577,4 +591,47 @@ pub fn playback_view(ui: &mut egui::Ui, song: &crate::song::Song, occurrence: us
                 });
             }
         });
+}
+#[cfg(test)]
+mod selected_instrument_tests {
+    use super::*;
+    #[test]
+    fn note_entry_records_selected_instrument_in_one_undo_step() {
+        let ctx = egui::Context::default();
+        let mut editor = Editor {
+            edit_mode: true,
+            ..Editor::default()
+        };
+        let before = editor.cell();
+        ctx.memory_mut(|m| m.request_focus(grid_id()));
+        let event = egui::Event::Key {
+            key: egui::Key::Z,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let _ = ctx.run(
+            egui::RawInput {
+                events: vec![event],
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.interact(
+                        ui.max_rect(),
+                        grid_id(),
+                        egui::Sense::focusable_noninteractive(),
+                    );
+                });
+                keyboard_with_instrument(&mut editor, ctx, Some(crate::song::InstrumentId(2)))
+                    .unwrap();
+            },
+        );
+        editor.row = 0;
+        assert_eq!(editor.cell().note, Note::Note(60));
+        assert_eq!(editor.cell().instrument, Some(crate::song::InstrumentId(2)));
+        editor.undo();
+        assert_eq!(editor.cell(), before);
+    }
 }

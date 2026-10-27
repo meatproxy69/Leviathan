@@ -157,7 +157,7 @@ impl Default for History {
         Self {
             undo: Vec::new(),
             redo: Vec::new(),
-            saved: example_song(),
+            saved: startup_song(),
         }
     }
 }
@@ -178,7 +178,7 @@ pub struct Editor {
 impl Default for Editor {
     fn default() -> Self {
         Self {
-            song: example_song(),
+            song: startup_song(),
             occurrence: 0,
             track: TrackId(1),
             column: 0,
@@ -193,6 +193,27 @@ impl Default for Editor {
     }
 }
 impl Editor {
+    /// Add channels and instruments until the document has at least 24 of each.
+    /// Existing content and channel layouts are retained as an undoable edit.
+    pub fn ensure_24_slots(&mut self) -> Result<(), String> {
+        self.protect()?;
+        let mut candidate = self.song.clone();
+        candidate.ensure_24_slots();
+        candidate.validate()?;
+        self.commit(candidate);
+        Ok(())
+    }
+
+    /// Set the song tempo as a validated, undoable song edit.
+    pub fn set_bpm(&mut self, bpm: f64) -> Result<(), String> {
+        self.protect()?;
+        let mut candidate = self.song.clone();
+        candidate.bpm = bpm;
+        candidate.validate()?;
+        self.commit(candidate);
+        Ok(())
+    }
+
     pub fn preview_generation(
         &self,
         name: &str,
@@ -547,7 +568,11 @@ impl Editor {
     ) -> Result<(), String> {
         self.protect()?;
         let sample = sample
-            .map(|path| path.canonicalize().map_err(|e| format!("Sample path: {e}")))
+            .map(|path| {
+                path.canonicalize()
+                    .map(crate::project::normal_path)
+                    .map_err(|e| format!("Sample path: {e}"))
+            })
             .transpose()?;
         if sample.as_ref().is_some_and(|p| !p.is_file()) {
             return Err("Sample must be a file".into());

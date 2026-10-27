@@ -2,7 +2,7 @@
 use crate::{
     editor::Editor,
     project::{self, SaveMode},
-    song::{example_song, Occurrence, PatternId},
+    song::new_song_template,
 };
 use std::path::PathBuf;
 #[derive(Debug, Clone)]
@@ -37,11 +37,7 @@ impl Session {
     fn execute(&mut self, editor: &mut Editor, action: Action) -> Result<(), String> {
         match action {
             Action::New => {
-                let mut song = example_song();
-                song.title = "Untitled".into();
-                song.patterns.retain(|id, _| *id == PatternId(1));
-                song.patterns.get_mut(&PatternId(1)).unwrap().tracks.clear();
-                song.order = vec![Occurrence::new(PatternId(1))];
+                let song = new_song_template();
                 editor.replace_document(song)?;
                 self.path = None;
                 self.notice = "New song".into();

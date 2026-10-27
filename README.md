@@ -6,11 +6,11 @@
 
 A native Rust tracker and sequencer for editable patterns, phrases, arrangement, groove, and seeded generation.
 
-[![Alpha 1](https://img.shields.io/badge/release-Alpha_1-66ddcc)](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.1)
-[![Linux x86_64](https://img.shields.io/badge/binary-Linux_x86__64-82aaff)](#download-alpha-1)
+[![Alpha 2](https://img.shields.io/badge/release-Alpha_2-66ddcc)](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.2)
+[![Windows and Linux builds](https://img.shields.io/badge/builds-Windows_%2B_Linux-82aaff)](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.2)
 [![AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-aaaaaa)](LICENSE)
 
-**[Download Alpha 1](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.1)** · **[Install](#install-on-linux)** · **[Try a demo](#try-a-song-in-three-commands)** · **[Agent workflow](#agent-first-no-mcp-required)**
+**[Alpha 2 downloads](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.2)** · **[Build from source](#build-from-source)** · **[Try a demo](#try-a-song-in-three-commands)** · **[Agent workflow](#agent-first-no-mcp-required)**
 
 ![LEVIATHAN Alpha 1 tracker showing editable notes and the song order](docs/images/tracker.png)
 
@@ -47,65 +47,51 @@ it from the command line.
 
 </details>
 
-## Download Alpha 1
+## Alpha 2 downloads
 
-**Version `v0.1.0-alpha.1` · Early alpha · Keep backups of your projects.**
+**Version `v0.1.0-alpha.2` · Early alpha · Keep backups of your projects.**
+The Windows and Linux packages are intended to be published together on the
+[Alpha 2 release page](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.2).
+This page and its asset links may not be available until the release is published.
 
-| Download | Use it for |
+| Download | Package |
 | --- | --- |
-| **[Linux x86_64 binary (.tar.gz)](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/leviathan-v0.1.0-alpha.1-linux-x86_64.tar.gz)** | Run the native editor and bundled CLI tools. |
-| [Source (.tar.gz)](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/leviathan-v0.1.0-alpha.1-source.tar.gz) · [Source (.zip)](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/leviathan-v0.1.0-alpha.1-source.zip) | Build Alpha 1 yourself; tests and Cargo.lock included. |
-| [SHA256SUMS](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/SHA256SUMS) | Verify your download. |
+| [Windows x86_64 (.zip)](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.2/leviathan-v0.1.0-alpha.2-windows-x86_64.zip) | `leviathan-v0.1.0-alpha.2-windows-x86_64.zip` |
+| [Linux x86_64 (.tar.gz)](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.2/leviathan-v0.1.0-alpha.2-linux-x86_64.tar.gz) | `leviathan-v0.1.0-alpha.2-linux-x86_64.tar.gz` |
 
-**Linux binary requirements:** x86_64 GNU/Linux, **glibc 2.43 or newer**, ALSA,
-an OpenGL/EGL-capable driver, and a Wayland/X11 desktop. Check glibc with
-`ldd --version`. Older distributions should [build from source](#build-from-source).
-Windows/macOS binaries are not provided or verified in this alpha.
+Both packages place the command-line executables under `bin/`. The Linux package
+also includes `run-leviathan.sh` as its editor launcher. Alpha 1 remains the
+earlier Linux-only release; see its [historical release page](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.1).
 
 **No samples or recordings are bundled.** Bring your own audio, or generate the
 optional synthetic demo locally using the commands below.
 
-## Install on Linux
-
-Download and extract into a writable directory. No system installation is required.
-Run these commands in a new directory:
-
-```sh
-curl -fLO https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/leviathan-v0.1.0-alpha.1-linux-x86_64.tar.gz
-curl -fLO https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.1/SHA256SUMS
-sha256sum --ignore-missing -c SHA256SUMS
-# Continue only when the Linux archive reports OK.
-tar -xzf leviathan-v0.1.0-alpha.1-linux-x86_64.tar.gz
-cd leviathan-v0.1.0-alpha.1-linux-x86_64
-./run-leviathan.sh
-```
-
-You can also download the two files with your browser and extract the archive
-with your file manager. Open an existing project with:
-
-```sh
-./run-leviathan.sh --project /absolute/path/to/song.leviathan.json
-```
-
-Keep `LICENSE`, `THIRD-PARTY-NOTICES.md`, `licenses/`, and the bundled documentation
-with redistributed binaries. The application does not configure accounts,
-audio-device settings, or system services.
-
 ## Try a song in three commands
 
-From the extracted package directory:
+From the extracted Linux package directory:
 
 ```sh
 ./bin/song_demo my-first-song --generate
 ./bin/render_song my-first-song/first-current.leviathan.json my-first-song/listen.wav
-./bin/leviathan --project my-first-song/first-current.leviathan.json
+./run-leviathan.sh --project my-first-song/first-current.leviathan.json
 ```
 
 The first command creates synthetic kick, hat, bass, and lead sounds **on your
 machine**, plus an editable project and reference render. The second renders a
-fresh WAV; the third opens the project in the editor. Press **Play song** to listen.
-Use a new demo directory and new output filename each time; existing destinations
-are refused. No personal or commercial sample library is downloaded or distributed.
+fresh WAV; the third starts the editor with the project. No claim about Linux
+GUI validation or live audio is made here. Use a new demo directory and new
+output filename each time; existing destinations are refused.
+
+On Windows, run the corresponding commands from PowerShell in the extracted
+package directory:
+
+```powershell
+.\bin\song_demo.exe my-first-song --generate
+.\bin\render_song.exe my-first-song\first-current.leviathan.json my-first-song\listen.wav
+.\bin\leviathan.exe --project my-first-song\first-current.leviathan.json
+```
+
+No personal or commercial sample library is downloaded or distributed.
 
 ## Agent-first: no MCP required
 
@@ -130,15 +116,17 @@ so playback does not rerun the generator.
 
 `song_demo` also accepts `--effects`, `--phrases`, `--arrangement`, or `--groove`.
 The package retains `aqua-pattern-core`, a legacy fixed-motif CLI independent of
-the editable project. Alpha 1 provides files and commands for agent workflows;
+the editable project. The release provides files and commands for agent workflows;
 it does not include an embedded AI agent or agent orchestration service.
 
 ## Make a first song
 
-1. Select **Tracker** and enable **Edit Mode**. **New** creates four empty tracks
-   and four unassigned instruments. No sample files are embedded.
-2. Select **Audio / Export**, choose an instrument, enter the path of your own audio
-   file and click **Assign sample**. Repeat as needed. The assigned path is shown.
+1. Select **Tracker** and enable **Edit Mode**. **New** creates 24 empty tracks
+   and 24 unassigned instruments. No sample files are embedded.
+2. Select **Tracker**, enable **Edit Mode**, and choose an instrument in the
+   **Instrument sample** row. Click **Browse / Load sample** to pick a local audio
+   file. You can also enter a path or drop a file onto the path field, then click
+   **Assign**. Repeat for other instruments; the assigned path is shown.
 3. Return to **Tracker**. Click a note field to focus it. Z–M enter notes, arrows/Tab
    navigate, backtick enters OFF, Delete clears a field and Shift+Delete clears a cell.
    Numeric entry uses MIDI notes/IDs and normalized velocity/pan/delay values.
@@ -157,14 +145,47 @@ it does not include an embedded AI agent or agent orchestration service.
 
 Generated cells are ordinary editable content. Samples stay external references;
 keep them available when reopening a project. There is no automatic sample copying.
-BPM/LPB are stored in project content; dedicated song-tempo controls are not yet exposed.
+BPM is available in the transport bar in Edit Mode; LPB is stored in project content. Playback uses its start snapshot, so restart to hear tempo changes.
 
 ## Build from source
 
-Use Rust/Cargo **1.99.1 or newer** (1.99.1 verified), a C toolchain, pkg-config,
-ALSA development files, libxkbcommon, and suitable Linux desktop/graphics libraries.
-Dependency versions/revisions are fixed in Cargo.lock. Network access is needed
-for the first fetch; the pattrns Git revision is pinned explicitly.
+Use Rust/Cargo **1.92.0 or newer** (1.92.0 verified for the Windows desktop build). Dependency versions and
+revisions are fixed in Cargo.lock. Network access is needed for the first fetch;
+the pattrns Git revision is pinned explicitly.
+
+### Windows
+
+Build with the `x86_64-pc-windows-msvc` Rust target, Visual Studio 2022 Build
+Tools with the **Desktop development with C++** workload, and a Windows 10/11
+SDK. Install Rust's MSVC toolchain through rustup. No separate ALSA or
+pkg-config packages are needed. The desktop backend uses the native Windows
+window system and audio output through CPAL's Windows host.
+
+In PowerShell, from the repository root:
+
+```powershell
+cargo fetch --locked
+cargo build --release --locked --features desktop --bin leviathan
+cargo test --locked --features desktop
+cargo test --locked --no-default-features
+cargo fmt --all --check
+```
+
+The desktop executable is `target\release\leviathan.exe`; command-line tools
+can be built separately. The optional `realtime-probe` feature enables phonic’s
+ASIO backend and requires the ASIO SDK and libclang; the desktop app uses CPAL
+directly and does not require that feature. Alpha 1 did not include a Windows
+binary. The Alpha 2 package link is above; its asset becomes available when the
+release is published.
+When real-time playback runs, its per-user lease is stored under
+`%LOCALAPPDATA%\Leviathan\transport.lock` (falling back to `%APPDATA%`, then the
+system temporary directory). A stale lease is refused; remove it only after
+confirming no LEVIATHAN transport is active.
+
+### Linux
+
+Linux builds additionally need a C toolchain, pkg-config, ALSA development files,
+libxkbcommon, and suitable Linux desktop/graphics libraries.
 
 ```sh
 cargo fetch --locked
@@ -195,11 +216,13 @@ one-shot/non-recursive; sample/phrase playback is not Renoise command emulation.
 No XRNS compatibility, MIDI I/O, VST/CLAP hosting, recording, mixer/routing editor,
 automation, discovery, or automatic time-stretch is claimed.
 
-Only one live LEVIATHAN transport per user runtime is permitted. Its lease is
-`$XDG_RUNTIME_DIR/leviathan/transport.lock`, falling back to XDG_CACHE_HOME or
-HOME/.cache. A stale lease is refused; the error includes its path. Only remove
-it after confirming no LEVIATHAN transport is active. Alpha 1 no longer embeds a
-build-machine checkout path for the lock or default exports.
+Only one live LEVIATHAN transport per user runtime is permitted. Linux stores
+its lease at `$XDG_RUNTIME_DIR/leviathan/transport.lock`, falling back to
+XDG_CACHE_HOME or HOME/.cache. Windows uses `%LOCALAPPDATA%\Leviathan`, falling
+back to `%APPDATA%` or the system temporary directory. A stale lease is refused;
+the error includes its path. Only remove it after confirming no LEVIATHAN
+transport is active. The release does not embed a build-machine checkout path
+for the lock or default exports.
 
 ## License
 

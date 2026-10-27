@@ -53,7 +53,7 @@ impl Shared {
     pub fn seek(&self, frame: u64) {
         self.ready.store(false, Ordering::SeqCst);
         self.command
-            .try_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
                 Some((((v >> 32).wrapping_add(1)) << 32) | (frame & 0xffff_ffff))
             })
             .unwrap();
@@ -249,12 +249,22 @@ pub mod host {
             Ok(Self(lock))
         }
         fn acquire() -> Result<Self, String> {
+            #[cfg(target_os = "windows")]
+            let base = std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .or_else(|| std::env::var_os("APPDATA").map(PathBuf::from))
+                .unwrap_or_else(std::env::temp_dir)
+                .join("Leviathan");
+
+            #[cfg(not(target_os = "windows"))]
             let base = std::env::var_os("XDG_RUNTIME_DIR")
                 .map(PathBuf::from)
                 .or_else(|| std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from))
                 .or_else(|| std::env::var_os("HOME").map(|p| PathBuf::from(p).join(".cache")))
-                .unwrap_or_else(std::env::temp_dir);
-            Self::acquire_in(base.join("leviathan"))
+                .unwrap_or_else(std::env::temp_dir)
+                .join("leviathan");
+
+            Self::acquire_in(base)
         }
     }
 

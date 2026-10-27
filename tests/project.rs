@@ -181,6 +181,8 @@ fn save_discard_cancel_guard_new_open_and_close() {
     assert!(!e.dirty && !e.can_undo());
     assert!(session.path.is_none());
     assert!(e.has_grid());
+    assert_eq!(e.song.tracks.len(), 24);
+    assert_eq!(e.song.instruments.len(), 24);
     session
         .request(&mut e, Action::Open(dir.path("saved.json")))
         .unwrap();

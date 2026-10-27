@@ -3,6 +3,59 @@ use aqua_pattern_core::{
     song::{Note, PatternId, TrackId},
 };
 #[test]
+fn tempo_edit_is_guarded_validated_and_undoable() {
+    let mut editor = Editor::default();
+    let original = editor.song.bpm;
+    assert!(editor.set_bpm(140.0).is_err());
+    editor.edit_mode = true;
+    assert!(editor.set_bpm(401.0).is_err());
+    assert_eq!(editor.song.bpm, original);
+    editor.set_bpm(140.0).unwrap();
+    assert!(editor.dirty);
+    assert_eq!(editor.song.bpm, 140.0);
+    editor.undo();
+    assert_eq!(editor.song.bpm, original);
+    editor.redo();
+    assert_eq!(editor.song.bpm, 140.0);
+}
+
+#[test]
+fn default_has_saved_24_slots_and_existing_song_expansion_is_undoable() {
+    let mut fresh = Editor::default();
+    assert_eq!(fresh.song.tracks.len(), 24);
+    assert_eq!(fresh.song.instruments.len(), 24);
+    assert!(!fresh.dirty);
+    assert!(!fresh.can_undo());
+    fresh.edit_mode = true;
+    fresh.ensure_24_slots().unwrap();
+    assert!(!fresh.dirty);
+    assert!(!fresh.can_undo());
+
+    let mut existing = Editor {
+        edit_mode: true,
+        ..Editor::default()
+    };
+    existing
+        .replace_document(aqua_pattern_core::song::example_song())
+        .unwrap();
+    existing.edit_mode = true;
+    let before = existing.song.clone();
+    existing.ensure_24_slots().unwrap();
+    assert_eq!(existing.song.tracks.len(), 24);
+    assert_eq!(existing.song.instruments.len(), 24);
+    assert_eq!(existing.song.tracks[&TrackId(1)].note_columns, 2);
+    assert_eq!(
+        existing.song.patterns[&PatternId(1)],
+        before.patterns[&PatternId(1)]
+    );
+    assert!(existing.dirty && existing.can_undo());
+    existing.undo();
+    assert_eq!(existing.song, before);
+    assert!(!existing.dirty);
+    existing.redo();
+    assert_eq!(existing.song.tracks.len(), 24);
+}
+#[test]
 fn edit_mode_protects_all_mutations_and_navigation_remains_available() {
     let mut e = Editor::default();
     let before = e.song.clone();
@@ -107,6 +160,9 @@ fn navigation_and_edit_step_stay_inside_variable_patterns() {
         edit_step: 4,
         ..Editor::default()
     };
+    e.replace_document(aqua_pattern_core::song::example_song())
+        .unwrap();
+    e.edit_mode = true;
     e.enter_note(Note::Note(60)).unwrap();
     assert_eq!(e.row, 4);
     e.move_rows(99999);

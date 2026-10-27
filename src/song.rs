@@ -281,6 +281,33 @@ pub struct Song {
     pub order: Vec<Occurrence>,
 }
 impl Song {
+    /// Expand a document to at least 24 tracker channels and instruments.
+    /// Existing IDs, channel layouts, instruments, and pattern data are preserved.
+    pub fn ensure_24_slots(&mut self) {
+        while self.track_order.len() < 24 {
+            let id = next_track_id(&self.tracks);
+            self.tracks.insert(
+                id,
+                Track {
+                    name: format!("Track {}", id.0),
+                    note_columns: 1,
+                },
+            );
+            self.track_order.push(id);
+        }
+        while self.instruments.len() < 24 {
+            let id = next_instrument_id(&self.instruments);
+            self.instruments.insert(
+                id,
+                Instrument {
+                    name: format!("Instrument {}", id.0),
+                    sample: None,
+                    phrases: BTreeMap::new(),
+                },
+            );
+        }
+    }
+
     /// Resolve a block, rejecting missing references, incompatible shapes and cycles.
     pub fn block_source(&self, pattern: PatternId, track: TrackId) -> Result<BlockRef, String> {
         let mut at = BlockRef { pattern, track };
@@ -509,6 +536,47 @@ impl Song {
         self.patterns.insert(destination, pattern);
         Ok(())
     }
+}
+
+fn next_track_id(tracks: &BTreeMap<TrackId, Track>) -> TrackId {
+    TrackId(
+        (1..=u64::MAX)
+            .find(|id| !tracks.contains_key(&TrackId(*id)))
+            .expect("track ID space exhausted"),
+    )
+}
+fn next_instrument_id(instruments: &BTreeMap<InstrumentId, Instrument>) -> InstrumentId {
+    InstrumentId(
+        (1..=u64::MAX)
+            .find(|id| !instruments.contains_key(&InstrumentId(*id)))
+            .expect("instrument ID space exhausted"),
+    )
+}
+
+/// Blank 24-channel starting document. Kept separate from `example_song`, which
+/// remains a small content fixture for tests and demos.
+pub fn new_song_template() -> Song {
+    let mut song = example_song();
+    song.title = "Untitled".into();
+    for track in song.tracks.values_mut() {
+        track.note_columns = 1;
+    }
+    for pattern in song.patterns.values_mut() {
+        pattern.tracks.clear();
+        pattern.aliases.clear();
+    }
+    song.patterns.retain(|id, _| *id == PatternId(1));
+    song.order = vec![Occurrence::new(PatternId(1))];
+    song.ensure_24_slots();
+    song
+}
+
+/// Expanded example content used by the editor on startup. Preserves the
+/// example arrangement and its existing channel layouts while offering 24 slots.
+pub fn startup_song() -> Song {
+    let mut song = example_song();
+    song.ensure_24_slots();
+    song
 }
 
 /// Content fixture only; no filesystem access and no implicit sample generation.

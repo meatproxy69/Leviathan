@@ -21,6 +21,22 @@ pub enum SaveMode {
     CreateNew,
     ReplaceConfirmed(Vec<u8>),
 }
+pub(crate) fn normal_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        // canonicalize uses extended-length syntax, while normal paths are
+        // used by the editor and project files.
+        if let Some(text) = path.to_str() {
+            if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+                return PathBuf::from(format!(r"\\{unc}"));
+            }
+            if let Some(local) = text.strip_prefix(r"\\?\") {
+                return PathBuf::from(local);
+            }
+        }
+    }
+    path
+}
 fn absolute(path: &Path) -> Result<PathBuf, String> {
     if path.as_os_str().is_empty() {
         return Err("Project path is empty".into());
@@ -37,6 +53,7 @@ fn absolute(path: &Path) -> Result<PathBuf, String> {
         .ok_or("Project needs a parent directory")?
         .canonicalize()
         .map_err(|e| format!("Project directory: {e}"))?;
+    let parent = normal_path(parent);
     Ok(parent.join(path.file_name().ok_or("Project needs a filename")?))
 }
 /// Bound reads and reject symlinks for project files (asset references may resolve normally).

@@ -4,6 +4,14 @@ use crate::{
 };
 use eframe::egui::{self, Color32, RichText, Vec2};
 use std::{path::PathBuf, time::Duration};
+
+fn native_sample_picker() -> Result<Option<PathBuf>, String> {
+    Ok(rfd::FileDialog::new()
+        .set_title("Load instrument sample")
+        .add_filter("Audio samples", &["wav", "flac", "ogg", "aiff"])
+        .add_filter("All files", &["*"])
+        .pick_file())
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Workspace {
     #[default]
@@ -75,6 +83,7 @@ pub struct Leviathan {
     instrument_id: u64,
     asset_path: String,
     song_asset_seen: Option<(u64, Option<PathBuf>)>,
+    tracker_sample_drop_rect: Option<egui::Rect>,
     song_output: String,
     transport: crate::transport::host::Transport,
     follow: bool,
@@ -122,6 +131,7 @@ impl Leviathan {
             instrument_id: 1,
             asset_path: String::new(),
             song_asset_seen: None,
+            tracker_sample_drop_rect: None,
             song_output: root.join("song.wav").display().to_string(),
             jobs: Jobs::default(),
             sample: None,
@@ -459,11 +469,9 @@ impl Leviathan {
                     });
                     ui.add(
                         egui::TextEdit::singleline(&mut self.project_path)
-                            .desired_width((ui.available_width() - 8.0).max(100.0))
+                            .desired_width((ui.available_width() - 480.0).max(110.0))
                             .hint_text("/path/to/song.leviathan.json"),
                     );
-                });
-                ui.horizontal_wrapped(|ui| {
                     if ui.button("New").clicked() {
                         self.request_action(crate::session::Action::New);
                     }
@@ -641,6 +649,31 @@ impl Leviathan {
                 }
             }
             ui.checkbox(&mut self.follow, "Follow");
+            ui.separator();
+            ui.label("BPM");
+            let mut bpm = self.tracker.editor.song.bpm;
+            let can_edit_bpm = self.tracker.editor.edit_mode
+                && self.session.pending.is_none()
+                && self.session.overwrite.is_none();
+            let changed = ui
+                .add_enabled_ui(can_edit_bpm, |ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut bpm)
+                            .range(20.0..=400.0)
+                            .speed(0.25),
+                    )
+                })
+                .inner
+                .changed();
+            if changed {
+                match self.tracker.editor.set_bpm(bpm) {
+                    Ok(()) => {
+                        self.error = None;
+                        self.status = "Song tempo updated (undoable)".into();
+                    }
+                    Err(e) => self.error = Some(e),
+                }
+            }
             if ui
                 .add_enabled(
                     self.transport.busy() && self.tracker.editor.has_grid(),
@@ -700,7 +733,7 @@ impl Leviathan {
                 state.underruns.load(Ordering::Relaxed)
             ));
         }
-        ui.label(RichText::new("Playback uses the start snapshot. Restart to hear edits. Seek / loop-toggle clears voices; loop restarts at row 0 without tail.").small().weak());
+        ui.label(RichText::new("Playback help ⓘ").small().weak()).on_hover_text("Playback uses the start snapshot. Restart to hear edits. Seek / loop-toggle clears voices; loop restarts at row 0 without tail.");
         if let Some(error) = &self.transport.error {
             ui.colored_label(Color32::LIGHT_RED, error);
         }
@@ -756,6 +789,137 @@ impl Leviathan {
                 });
                 ui.label(RichText::new("Exports current order snapshot. Edits after click affect the next export; transport is independent.").small().weak());
             });
+    }
+    fn tracker_instrument_controls(&mut self, ui: &mut egui::Ui) {
+        sync_sample_form(
+            &self.tracker.editor.song,
+            &mut self.instrument_id,
+            &mut self.asset_path,
+            &mut self.song_asset_seen,
+        );
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Instrument sample").strong());
+            if (self.tracker.editor.song.track_order.len() < 24 || self.tracker.editor.song.instruments.len() < 24)
+                && ui.add_enabled(self.tracker.editor.edit_mode, egui::Button::new("Add 24 slots"))
+                    .on_hover_text("Expand this song to at least 24 tracks and 24 instruments; existing content is preserved")
+                    .clicked()
+            {
+                match self.tracker.editor.ensure_24_slots() {
+                    Ok(()) => { self.error = None; self.status = "Added track and instrument slots (undoable)".into(); }
+                    Err(error) => self.error = Some(error),
+                }
+            }
+            let before = self.instrument_id;
+            let selected_name = self
+                .tracker
+                .editor
+                .song
+                .instruments
+                .get(&crate::song::InstrumentId(self.instrument_id))
+                .map(|instrument| format!("{} · {}", self.instrument_id, instrument.name))
+                .unwrap_or_else(|| format!("Instrument {}", self.instrument_id));
+            egui::ComboBox::from_id_salt("tracker-instrument-sample")
+                .selected_text(selected_name)
+                .show_ui(ui, |ui| {
+                    for (id, instrument) in &self.tracker.editor.song.instruments {
+                        ui.selectable_value(
+                            &mut self.instrument_id,
+                            id.0,
+                            format!("{} · {}", id.0, instrument.name),
+                        );
+                    }
+                });
+            if before != self.instrument_id {
+                sync_sample_form(
+                    &self.tracker.editor.song,
+                    &mut self.instrument_id,
+                    &mut self.asset_path,
+                    &mut self.song_asset_seen,
+                );
+            }
+            self.tracker.selected_instrument = self
+                .tracker
+                .editor
+                .song
+                .instruments
+                .contains_key(&crate::song::InstrumentId(self.instrument_id))
+                .then_some(crate::song::InstrumentId(self.instrument_id));
+            let path_response = ui.add(
+                egui::TextEdit::singleline(&mut self.asset_path)
+                    .desired_width(260.0)
+                    .hint_text("Sample path · drop a file here"),
+            );
+            self.tracker_sample_drop_rect = Some(path_response.rect);
+            if ui
+                .add_enabled(self.tracker.editor.edit_mode, egui::Button::new("Assign"))
+                .on_hover_text("Assign this sample path to the selected instrument (undoable)")
+                .clicked()
+            {
+                self.assign_tracker_sample();
+            }
+            let can_browse = self.tracker.editor.edit_mode
+                && self.session.pending.is_none()
+                && self.session.overwrite.is_none();
+            if ui
+                .add_enabled(can_browse, egui::Button::new("Browse / Load sample"))
+                .on_hover_text("Choose a sample file and assign it to this instrument")
+                .clicked()
+            {
+                self.browse_tracker_sample();
+            }
+            let assigned = self
+                .tracker
+                .editor
+                .song
+                .instruments
+                .get(&crate::song::InstrumentId(self.instrument_id))
+                .and_then(|instrument| instrument.sample.as_ref());
+            ui.label(
+                RichText::new(
+                    assigned
+                        .map(|path| format!("Assigned: {}", path.display()))
+                        .unwrap_or_else(|| "No sample assigned".into()),
+                )
+                .small()
+                .weak(),
+            );
+        });
+        ui.separator();
+    }
+    fn assign_tracker_sample(&mut self) {
+        let path = if self.asset_path.trim().is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(self.asset_path.trim()))
+        };
+        match self
+            .tracker
+            .editor
+            .assign_sample(crate::song::InstrumentId(self.instrument_id), path)
+        {
+            Ok(()) => {
+                self.error = None;
+                self.status = "Instrument sample reference updated (undoable)".into();
+                self.song_asset_seen = None;
+            }
+            Err(error) => self.error = Some(error),
+        }
+    }
+    fn browse_tracker_sample(&mut self) {
+        if !self.tracker.editor.edit_mode
+            || self.session.pending.is_some()
+            || self.session.overwrite.is_some()
+        {
+            return;
+        }
+        match native_sample_picker() {
+            Ok(Some(path)) => {
+                self.asset_path = path.display().to_string();
+                self.assign_tracker_sample();
+            }
+            Ok(None) => {}
+            Err(error) => self.error = Some(error),
+        }
     }
     fn start(&mut self, r: Request, status: &str) {
         match self.jobs.start(r) {
@@ -992,22 +1156,35 @@ impl eframe::App for Leviathan {
             }
         }
         if !self.jobs.busy() {
-            if let Some(path) =
-                ctx.input(|i| i.raw.dropped_files.first().and_then(|f| f.path.clone()))
-            {
-                self.sample_path = path.display().to_string();
-                self.load();
+            if let Some((path, position)) = ctx.input(|i| {
+                i.raw
+                    .dropped_files
+                    .first()
+                    .and_then(|file| Some((file.path.clone()?, i.pointer.hover_pos()?)))
+            }) {
+                if self.legacy_tools {
+                    self.sample_path = path.display().to_string();
+                    self.load();
+                } else if self.workspace == Workspace::Tracker
+                    && self.session.pending.is_none()
+                    && self.session.overwrite.is_none()
+                    && !(self.follow && self.transport.busy())
+                    && self
+                        .tracker_sample_drop_rect
+                        .is_some_and(|rect| rect.contains(position))
+                {
+                    self.asset_path = path.display().to_string();
+                    self.assign_tracker_sample();
+                }
             }
         }
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
-            ui.add_space(12.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("LEVIATHAN").size(25.0).strong().color(MINT));
+                ui.label(RichText::new("LEVIATHAN").size(19.0).strong().color(MINT));
                 ui.separator();
                 ui.label("PATTERN STUDIO");
                 ui.checkbox(&mut self.legacy_tools, "Legacy motif export tools");
             });
-            ui.add_space(10.0);
         });
         self.project_controls(ctx);
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
@@ -1097,7 +1274,10 @@ impl eframe::App for Leviathan {
                 }
                 ui.add_enabled_ui(
                     self.session.pending.is_none() && self.session.overwrite.is_none(),
-                    |ui| self.tracker.show(ui),
+                    |ui| {
+                        self.tracker_instrument_controls(ui);
+                        self.tracker.show(ui);
+                    },
                 );
                 return;
             }

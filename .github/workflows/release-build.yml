@@ -1,0 +1,107 @@
+name: Manual release build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: ubuntu-22.04
+
+    steps:
+      - name: Check out requested commit
+        uses: actions/checkout@v4
+
+      - name: Install Linux desktop and audio build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            pkg-config \
+            libasound2-dev \
+            libgl1-mesa-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libxrandr-dev
+
+      - name: Install stable Rust 1.92 or newer
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify Rust toolchain minimum
+        shell: bash
+        run: |
+          version="$(rustc --version | sed -E 's/^rustc ([0-9]+\.[0-9]+).*/\1/')"
+          if [ "$(printf '%s\n' 1.92 "$version" | sort -V | head -n 1)" != "1.92" ]; then
+            echo "Rust 1.92 or newer is required; found $version" >&2
+            exit 1
+          fi
+
+      - name: Run tests
+        run: cargo test --locked --features desktop
+
+      - name: Build desktop app and release CLI binaries
+        run: >-
+          cargo build --locked --release --features desktop
+          --bin leviathan
+          --bin render_song
+          --bin song_demo
+          --bin musical_demo
+
+      - name: Stage Windows binaries and license documents
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = "dist/Leviathan-windows-${{ github.sha }}"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          foreach ($binary in @('leviathan.exe', 'render_song.exe', 'song_demo.exe', 'musical_demo.exe')) {
+            New-Item -ItemType Directory -Force -Path "$stage/bin" | Out-Null
+            Copy-Item "target/release/$binary" "$stage/bin"
+          }
+          Copy-Item README.md, RELEASE-NOTES.md, LICENSE, THIRD-PARTY-NOTICES.md, DEPENDENCIES.tsv $stage
+          Copy-Item -Recurse licenses, docs $stage
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/leviathan-v0.1.0-alpha.2-windows-x86_64.zip"
+
+      - name: Stage Linux binaries and license documents
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          stage="dist/Leviathan-linux-${GITHUB_SHA}"
+          mkdir -p "$stage/bin"
+          cp target/release/leviathan target/release/render_song target/release/song_demo target/release/musical_demo "$stage/bin/"
+          printf '#!/bin/sh\nexec "$(dirname "$0")/bin/leviathan" "$@"\n' > "$stage/run-leviathan.sh"
+          chmod +x "$stage/run-leviathan.sh"
+          cp README.md RELEASE-NOTES.md LICENSE THIRD-PARTY-NOTICES.md DEPENDENCIES.tsv "$stage/"
+          cp -R licenses docs "$stage/"
+          tar -C "$stage" -czf dist/leviathan-v0.1.0-alpha.2-linux-x86_64.tar.gz .
+
+      - name: Upload Windows build artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: leviathan-windows-${{ github.sha }}
+          path: dist/leviathan-v0.1.0-alpha.2-windows-x86_64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Linux build artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: leviathan-linux-${{ github.sha }}
+          path: dist/leviathan-v0.1.0-alpha.2-linux-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 30
