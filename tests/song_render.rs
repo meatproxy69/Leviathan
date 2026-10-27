@@ -410,8 +410,13 @@ fn sample_assignment_is_protected_validated_and_undoable() {
         .unwrap();
     assert!(e.dirty);
     assert_eq!(
-        e.song.instruments[&InstrumentId(1)].sample,
-        Some(f.path("sample.wav"))
+        e.song.instruments[&InstrumentId(1)]
+            .sample
+            .as_ref()
+            .unwrap()
+            .canonicalize()
+            .unwrap(),
+        f.path("sample.wav").canonicalize().unwrap()
     );
     e.undo();
     assert_eq!(e.song.instruments[&InstrumentId(1)].sample, None);

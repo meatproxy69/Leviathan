@@ -43,7 +43,11 @@ fn project_roundtrip_resolves_relative_assets_and_save_as_preserves_target() {
     project::save(&song, &path, SaveMode::CreateNew).unwrap();
     let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(json["song"]["instruments"]["1"]["sample"], "sample.wav");
-    let (restored, _) = project::load(&path).unwrap();
+    let (restored, loaded_path) = project::load(&path).unwrap();
+    // Project paths are resolved through the canonical project directory. On
+    // Windows an input may use an 8.3 alias for that same directory.
+    let canonical_asset = loaded_path.parent().unwrap().join("sample.wav");
+    song.instruments.get_mut(&InstrumentId(1)).unwrap().sample = Some(canonical_asset.clone());
     assert_eq!(restored, song);
     let sub = dir.path("other");
     std::fs::create_dir(&sub).unwrap();
@@ -51,7 +55,7 @@ fn project_roundtrip_resolves_relative_assets_and_save_as_preserves_target() {
     project::save(&restored, &copy, SaveMode::CreateNew).unwrap();
     assert_eq!(
         project::load(&copy).unwrap().0.instruments[&InstrumentId(1)].sample,
-        Some(asset)
+        Some(canonical_asset)
     );
 }
 #[test]

@@ -104,7 +104,24 @@ fn assets(song: &mut Song, base: &Path, loading: bool) -> Result<(), String> {
             instrument.sample = Some(if loading {
                 resolved
             } else {
-                resolved.strip_prefix(base).unwrap_or(&resolved).to_owned()
+                // Compare using the canonical parent spelling. On Windows the
+                // project base may have come from canonicalize (long name),
+                // while an absolute sample path can retain an 8.3 alias. Do
+                // not canonicalize the file itself: it may be a symlink and
+                // the project should keep referring to that symlink.
+                let comparable = resolved
+                    .parent()
+                    .and_then(|parent| parent.canonicalize().ok())
+                    .and_then(|parent| {
+                        resolved
+                            .file_name()
+                            .map(|name| normal_path(parent).join(name))
+                    })
+                    .unwrap_or_else(|| resolved.clone());
+                comparable
+                    .strip_prefix(base)
+                    .unwrap_or(&resolved)
+                    .to_owned()
             });
         }
     }
