@@ -26,16 +26,17 @@ turn breaks into editable patterns. Review slice markers, map regions to pads,
 and preview groove or seeded generation before committing ordinary notes.
 Start with 24 tracks and 24 instruments, then add more as needed.
 
-| Workspace | What you can do |
-| --- | --- |
-| **Tracker** | Enter notes, velocity, pan, delay, step commands, and phrase triggers. |
-| **Samples / Regions** | Browse WAV/FLAC files, inspect waveforms, trim regions, and set playback, loop, and envelope controls. |
-| **Break workflow** | Review markers and tempo suggestions, create slice regions or pad banks, and compile editable sequences. |
-| **Pads / Steps** | Map samples to pads and edit drum patterns as ordinary tracker cells. |
-| **Phrases** | Define reusable polyphonic phrases and explicit tracker triggers. |
-| **Arrange** | Repeat, clone, alias blocks, and mute tracks in individual song positions. |
-| **Transform / Generate** | Preview groove, scoped edits, and seeded patterns before committing them. |
-| **Mix / Export** | Set track gain, balance, mute/solo; inspect peak meters and render WAV audio plus an event manifest. |
+## Features
+
+- **Tracker:** Start with 24 tracks and 24 instruments, add more, and enter notes, velocity, pan, delay, and step commands.
+- **Sampler:** Load WAV and FLAC files, view waveforms, trim non-destructive regions, and adjust playback, loops, and envelopes.
+- **Break slicing:** Review suggested markers and tempo, split breaks into regions, create pad banks, and compile editable sequences.
+- **Pads and steps:** Map samples to pads and edit drum patterns using the same tracker cells.
+- **Phrases and arrangement:** Trigger reusable polyphonic phrases, repeat or clone patterns, link blocks, and mute tracks per song position.
+- **Groove and generation:** Preview groove, transformations, and seeded patterns before committing them as editable notes.
+- **Mix and meters:** Control track gain, balance, mute, and solo, with sample peak meters.
+- **Save and export:** Save projects, use undo/redo for edits, and render WAV audio with an event manifest.
+- **Agent-friendly workflow:** Use the native editor or command-line tools; an optional headless MCP interface is also available.
 
 <details>
 <summary><strong>See arrangement and generation screenshots</strong></summary>
