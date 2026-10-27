@@ -38,6 +38,12 @@ Start with 24 tracks and 24 instruments, then add more as needed.
 - **Save and export:** Save projects, use undo/redo for edits, and render WAV audio with an event manifest.
 - **Direct agent control:** Inspect and operate the running editor, sampler, break tools, drafts, and transport through structured JSON commands. No MCP required.
 
+## Upcoming features
+
+- VST3 plugin support
+- A mixer with channel strips
+- Effects and equalization
+
 <details>
 <summary><strong>See arrangement and generation screenshots</strong></summary>
 
