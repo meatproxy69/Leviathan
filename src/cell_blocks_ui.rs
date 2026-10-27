@@ -7,6 +7,7 @@ use crate::{
     tracker_ui::{grid_id, AQUA},
 };
 use eframe::egui::{self, Color32, RichText};
+use serde_json::{json, Value};
 use std::{
     sync::mpsc::{self, Receiver, TryRecvError},
     thread,
@@ -127,6 +128,7 @@ struct Ready {
 #[derive(Default)]
 pub(crate) struct CellBlocksUi {
     open: bool,
+    view: ReviewTab,
     draft: Option<Draft>,
     clipboard: Option<DocumentClipboard>,
     pending: Option<Pending>,
@@ -145,6 +147,215 @@ pub(crate) struct CellBlocksUi {
     body_layout: Option<(egui::Rect, f32)>,
 }
 impl CellBlocksUi {
+    pub(crate) fn agent_state(&self, e: &Editor) -> Value {
+        let draft = self.draft.as_ref();
+        let current = self.current(e);
+        json!({"component":"cells","open":self.open,"busy":self.busy(),"current":current,"phase":if self.busy(){"busy"}else if current&&self.ready.is_some(){"preview_ready"}else if self.open{"draft"}else{"closed"},"actions":["open","set_draft","copy","preview_paste","preview_clear","poll","set_view","select_record","commit","forget_clipboard","cancel","close","reset"],
+        "draft_fields":{"pattern":"u64","track":"u64","row_start":"integer text inclusive","row_end":"integer text exclusive","column_start":"integer text inclusive","column_end":"integer text exclusive"},
+            "context":Context::of(e).map(|c|json!({"occurrence":c.occurrence,"pattern":c.pattern,"track":c.track,"row":c.row,"column":c.column})),"draft":draft.map(|d|json!({"pattern":d.pattern,"track":d.track,"row_start":d.row_start,"row_end":d.row_end,"column_start":d.column_start,"column_end":d.column_end,"parsed_scope":d.scope().ok()})),
+        "clipboard":self.clipboard.as_ref().map(|c|json!({"id":c.snapshot().id(),"revision_at_copy":c.revision(),"current_document":e.cell_clipboard_is_current_document(c),"summary":c.snapshot().summary(),"page":c.snapshot().page(self.page*PAGE,PAGE).ok()})),
+        "preview":self.ready.as_ref().map(|r|json!({"action":r.action.label(),"revision":r.plan.revision(),"current":current,"summary":r.plan.preview().summary(),"request":r.plan.preview().request(),"changes":r.plan.preview().changes(),"contexts":r.plan.preview().contexts(),"aliases":r.plan.preview().aliases(),"selected":self.selected,"selected_detail":self.detail})),
+        "view":match self.view{ReviewTab::Changes=>"changes",ReviewTab::Clipboard=>"clipboard",ReviewTab::Contexts=>"contexts",ReviewTab::Aliases=>"aliases"},"page":self.page,"selected":self.selected,"selected_detail":self.detail,"error":self.error,"notice":self.notice,"edit_mode":e.edit_mode})
+    }
+
+    pub(crate) fn agent_action(
+        &mut self,
+        e: &mut Editor,
+        _base: Option<&std::path::Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let object = action.as_object().ok_or("Action must be a JSON object")?;
+        let verb = object
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("Action requires string action")?;
+        match verb {
+            "open" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.open(e);
+            }
+            "close" | "cancel" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.close();
+            }
+            "reset" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.reset_document();
+            }
+            "set_draft" => {
+                ensure_agent_fields(object, &["action", "values"])?;
+                let values = object
+                    .get("values")
+                    .and_then(Value::as_object)
+                    .ok_or("set_draft requires object values")?;
+                let mut d = self
+                    .draft
+                    .clone()
+                    .ok_or("Open cell rectangle before setting its draft")?;
+                for (field, v) in values {
+                    match field.as_str() {
+                        "pattern" => {
+                            let id = PatternId(v.as_u64().ok_or("pattern must be u64")?);
+                            if !e.has_grid() || id != e.pattern_id() {
+                                return Err(
+                                    "Cell-rectangle pattern must match the current cursor pattern"
+                                        .into(),
+                                );
+                            }
+                            d.pattern = id
+                        }
+                        "track" => {
+                            let id = TrackId(v.as_u64().ok_or("track must be u64")?);
+                            if id != e.track {
+                                return Err("Cell-rectangle track must match the current logical cursor track".into());
+                            }
+                            d.track = id
+                        }
+                        "row_start" => {
+                            d.row_start = v.as_str().ok_or("row_start must remain text")?.into()
+                        }
+                        "row_end" => {
+                            d.row_end = v.as_str().ok_or("row_end must remain text")?.into()
+                        }
+                        "column_start" => {
+                            d.column_start =
+                                v.as_str().ok_or("column_start must remain text")?.into()
+                        }
+                        "column_end" => {
+                            d.column_end = v.as_str().ok_or("column_end must remain text")?.into()
+                        }
+                        _ => return Err(format!("Unknown cell-rectangle draft field `{field}`")),
+                    }
+                }
+                if self.draft.as_ref() != Some(&d) {
+                    self.invalidate("Selection changed; prepare a new whole-cell operation.");
+                }
+                self.draft = Some(d);
+            }
+            "copy" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.open(e);
+                self.start(e, Action::Copy);
+            }
+            "preview_paste" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.start(e, Action::Paste);
+            }
+            "preview_clear" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.start(e, Action::Clear);
+            }
+            "poll" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.sync(e);
+                self.poll();
+                self.finish(e);
+            }
+            "set_view" => {
+                ensure_agent_fields(object, &["action", "view", "page"])?;
+                self.view = match object.get("view").and_then(Value::as_str) {
+                    Some("changes") => ReviewTab::Changes,
+                    Some("clipboard") => ReviewTab::Clipboard,
+                    Some("contexts") => ReviewTab::Contexts,
+                    Some("aliases") => ReviewTab::Aliases,
+                    _ => return Err("view must be changes, clipboard, contexts, or aliases".into()),
+                };
+                self.page = object.get("page").and_then(Value::as_u64).unwrap_or(0) as usize;
+                self.selected = None;
+                self.detail.clear();
+            }
+            "select_record" => {
+                ensure_agent_fields(object, &["action", "index"])?;
+                let i = object
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .ok_or("index must be u64")? as usize;
+                let value = match self.view {
+                    ReviewTab::Clipboard => {
+                        let s = self
+                            .clipboard
+                            .as_ref()
+                            .ok_or("No internal clipboard")?
+                            .snapshot();
+                        serde_json::to_value(
+                            s.page(i, 1)?
+                                .cells
+                                .first()
+                                .ok_or("clipboard index outside snapshot")?,
+                        )
+                        .map_err(|e| e.to_string())?
+                    }
+                    ReviewTab::Changes => serde_json::to_value(
+                        self.ready
+                            .as_ref()
+                            .ok_or("No reviewed preview")?
+                            .plan
+                            .preview()
+                            .changes()
+                            .get(i)
+                            .ok_or("change index outside preview")?,
+                    )
+                    .map_err(|e| e.to_string())?,
+                    ReviewTab::Contexts => serde_json::to_value(
+                        self.ready
+                            .as_ref()
+                            .ok_or("No reviewed preview")?
+                            .plan
+                            .preview()
+                            .contexts()
+                            .get(i)
+                            .ok_or("context index outside preview")?,
+                    )
+                    .map_err(|e| e.to_string())?,
+                    ReviewTab::Aliases => serde_json::to_value(
+                        self.ready
+                            .as_ref()
+                            .ok_or("No reviewed preview")?
+                            .plan
+                            .preview()
+                            .aliases()
+                            .get(i)
+                            .ok_or("alias index outside preview")?,
+                    )
+                    .map_err(|e| e.to_string())?,
+                };
+                self.selected = Some(i);
+                self.detail = serde_json::to_string_pretty(&value).map_err(|e| e.to_string())?;
+                self.reveal_detail = true;
+            }
+            "forget_clipboard" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.clipboard = None;
+                self.ready = None;
+                self.selected = None;
+                self.detail.clear();
+                self.invalidate("Internal copy forgotten; Song unchanged.");
+            }
+            "commit" => {
+                ensure_agent_fields(object, &["action"])?;
+                if !e.edit_mode {
+                    return Err("Enable Edit Mode to commit whole-cell changes".into());
+                }
+                if self.busy() || !self.current(e) {
+                    return Err("Cell-block preview is stale or missing".into());
+                }
+                let r = self.ready.as_ref().unwrap();
+                let before = e.revision();
+                e.commit_cell_block_preview(&r.plan)?;
+                self.ready = None;
+                self.selected = None;
+                self.detail.clear();
+                self.notice = Some(if e.revision() == before {
+                    "No stored-cell change; no history entry. Clipboard retained.".into()
+                } else {
+                    "Whole-cell operation committed once. Clipboard retained; no cursor or audio action.".into()
+                });
+                self.revision = Some(e.revision());
+            }
+            _ => return Err(format!("Unknown cell-rectangle action `{verb}`")),
+        }
+        Ok(self.agent_state(e))
+    }
     pub(crate) fn is_open(&self) -> bool {
         self.open
     }
@@ -153,6 +364,7 @@ impl CellBlocksUi {
     }
     pub(crate) fn reset_document(&mut self) {
         self.close();
+        self.view = ReviewTab::default();
         self.draft = None;
         self.clipboard = None;
         self.revision = None;
@@ -434,6 +646,16 @@ enum ReviewTab {
     Contexts,
     Aliases,
 }
+fn ensure_agent_fields(
+    object: &serde_json::Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("Unknown action field `{key}`"));
+    }
+    Ok(())
+}
+
 fn numeric(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.label(label);
     ui.add(
@@ -534,7 +756,7 @@ impl CellBlocksUi {
         let mut clear_clipboard = false;
         let mut tab = ui.ctx().data_mut(|d| {
             d.get_temp::<ReviewTab>(egui::Id::new("cell-rectangle-review-tab"))
-                .unwrap_or_default()
+                .unwrap_or(self.view)
         });
         let previous_tab = tab;
         egui::Window::new("Cell rectangle")
@@ -658,6 +880,7 @@ impl CellBlocksUi {
             });
         ui.ctx()
             .data_mut(|d| d.insert_temp(egui::Id::new("cell-rectangle-review-tab"), tab));
+        self.view = tab;
         self.draft = Some(draft);
         if self.draft.as_ref() != Some(&original) {
             self.invalidate("Selection changed; previous preview is stale. Prepare again.");
@@ -712,6 +935,28 @@ impl CellBlocksUi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_state_discloses_phase_and_rejects_unknown_actions() {
+        let mut e = Editor::default();
+        let mut ui = CellBlocksUi::default();
+        assert_eq!(ui.agent_state(&e)["phase"], "closed");
+        assert!(ui
+            .agent_action(&mut e, None, json!({"action":"unlisted"}))
+            .is_err());
+        let mut e = editor();
+        ui.agent_action(&mut e, None, json!({"action":"open"}))
+            .unwrap();
+        assert!(ui.agent_state(&e)["open"].as_bool().unwrap());
+        assert!(ui
+            .agent_action(
+                &mut e,
+                None,
+                json!({"action":"set_draft","values":{"unknown":true}})
+            )
+            .is_err());
+        ui.agent_action(&mut e, None, json!({"action":"cancel"}))
+            .unwrap();
+    }
     use crate::song::{Cell, InstrumentId, Note};
     fn editor() -> Editor {
         let mut e = Editor {

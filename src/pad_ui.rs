@@ -1,19 +1,22 @@
 //! Optional drum-pad authoring surface. Pads select/insert ordinary tracker
 //! notes; explicit audition requests use the shared desktop transport, not a pad sequencer.
 use crate::{
-    editor::{note_label, Editor},
+    editor::{Editor, note_label},
     song::{
         Cell, DrumKitId, DrumKitInstrument, DrumPad, InstrumentId, InstrumentKind, Note, PadId,
         PadLayer, PadLayerId, PadMode, PadNewNote, RegionId, Song, TrackId, VelocityZone,
     },
-    tracker_ui::{grid_id, AQUA},
+    tracker_ui::{AQUA, grid_id},
 };
 use eframe::egui::{self, Color32, RichText, Stroke};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::path::Path;
 
 const MUTED: Color32 = Color32::from_rgb(133, 157, 167);
 const WARNING: Color32 = Color32::from_rgb(229, 185, 112);
 
+#[derive(Clone)]
 struct MappingDraft {
     revision: u64,
     kit: DrumKitId,
@@ -114,14 +117,11 @@ impl SourcesDraft {
             })
             .collect::<Result<Vec<_>, String>>()?;
         next.zones[index].max = midpoint.to_string();
-        next.zones.insert(
-            index + 1,
-            ZoneDraft {
-                min: (midpoint + 1).to_string(),
-                max: max.to_string(),
-                alternatives,
-            },
-        );
+        next.zones.insert(index + 1, ZoneDraft {
+            min: (midpoint + 1).to_string(),
+            max: max.to_string(),
+            alternatives,
+        });
         *self = next;
         Ok(())
     }
@@ -230,6 +230,486 @@ fn next_id(values: impl Iterator<Item = u64>) -> Result<u64, String> {
 }
 
 impl PadUi {
+    pub(crate) fn agent_state(&self, editor: &Editor) -> Value {
+        let kit = self
+            .assigned_kit(editor)
+            .and_then(|id| editor.song.drum_kits.get(&id));
+        let pads = kit.map(|k| k.pads.iter().map(|(id,p)| json!({"id":id.0,"slot":p.slot,"name":p.name,"selector_midi":p.note,"region":p.region.map(|r|r.0),"root_midi":p.root_note,"tune_semitones":p.tune_semitones,"gain":p.gain,"pan":p.pan,"velocity_zones":p.velocity_zones.iter().map(|z|json!({"min":z.min_velocity,"max":z.max_velocity,"alternatives":z.alternatives.iter().map(|a|json!({"id":a.id.0,"region":a.region.0})).collect::<Vec<_>>() })).collect::<Vec<_>>()})).collect::<Vec<_>>());
+        let instruments = editor
+            .song
+            .instruments
+            .iter()
+            .map(|(id, i)| json!({"id":id.0,"name":i.name,"kind":format!("{:?}",i.kind)}))
+            .collect::<Vec<_>>();
+        let regions = editor.song.regions.iter().map(|(id,r)|json!({"id":id.0,"name":r.name,"start_frame":r.start_frame,"end_frame":r.end_frame})).collect::<Vec<_>>();
+        let actions = json!({"set_open":{"open":"boolean"},"select_instrument":{"instrument_id":"integer|null"},"select_slot":{"slot":"0..15"},"select_pad":{"pad_id":"integer|null"},"set_insert_mode":{"enabled":"boolean"},"set_kit_name":{"name":"string"},"choose_kit":{"kit_id":"integer|null"},"create_kit_instrument":{},"create_kit":{},"assign_kit":{"kit_id":"integer|null"},"unassign_kit":{},"remove_kit":{"kit_id":"integer"},"edit_mapping":{},"patch_mapping":{"fields":["name","slot","selector_midi","region","root_midi","tune_semitones","gain","pan","mode","new_note","choke_group","sources_tab"]},"set_source_mode":{"mode":"single|velocity_zones"},"patch_zone":{"index":"integer","fields":["min","max"]},"source_edit":{"op":"split|remove_zone|add_alternative|move_alternative|remove_alternative|set_layer_region","zone":"integer","index":"integer","from":"integer","to":"integer","region_id":"integer|null"},"apply_mapping":{},"cancel_mapping":{},"remove_pad":{},"insert_note":{},"audition_start":{},"audition_stop":{},"inspect_region":{"region_id":"integer"},"inspect_layer":{"layer_id":"integer"}});
+        let draft = self.draft.as_ref().map(|d| json!({
+            "kit": d.kit.0, "pad": d.id.0, "revision": d.revision,
+            "settings": {"name":d.value.name,"slot":d.value.slot,"selector_midi":d.value.note,
+                "region":d.value.region.map(|v|v.0),"root_midi":d.value.root_note,
+                "tune_semitones":d.value.tune_semitones,"gain":d.value.gain,"pan":d.value.pan,
+                "mode":format!("{:?}",d.value.mode),"new_note":format!("{:?}",d.value.new_note),"choke_group":d.value.choke_group},
+            "sources_tab":d.sources_tab,"source_mode":if d.sources.layered {"velocity_zones"} else {"single"},
+            "zones":d.sources.zones.iter().map(|z|json!({"min":z.min,"max":z.max,"alternatives":z.alternatives.iter().map(|l|json!({"id":l.id.0,"region":l.region.map(|v|v.0)})).collect::<Vec<_>>() })).collect::<Vec<_>>()
+        }));
+        json!({"component":"pads","open":self.open,"edit_mode":editor.edit_mode,
+            "selected_instrument":self.instrument.map(|v|v.0),"assigned_kit":self.assigned_kit(editor).map(|v|v.0),
+            "selected_pad":self.selected.map(|v|v.0),"selected_slot":self.selected_slot,
+            "insert_mode":self.insert_mode,"kit_choice":self.kit_choice.map(|v|v.0),"kit_name":self.kit_name,
+            "pads":pads,
+            "instruments":instruments,
+            "regions":regions,
+            "draft":draft,"error":self.error,
+            "actions":actions,
+            "policy":{"requires_edit_mode_for_mutation":true,"apply_is_single_undo":true,"selection_and_preview_do_not_edit_song":true}})
+    }
+    pub(crate) fn agent_action(
+        &mut self,
+        editor: &mut Editor,
+        _base: Option<&Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let obj = action.as_object().ok_or("action must be an object")?;
+        let name = obj
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("action name required")?;
+        let action_fields: &[&str] = match name {
+            "set_open" => &["action", "open"],
+            "select_instrument" => &["action", "instrument_id"],
+            "select_slot" => &["action", "slot"],
+            "select_pad" => &["action", "pad_id"],
+            "set_insert_mode" => &["action", "enabled"],
+            "set_kit_name" => &["action", "name"],
+            "choose_kit" | "assign_kit" => &["action", "kit_id"],
+            "remove_kit" => &["action", "kit_id"],
+            "patch_mapping" => &["action", "fields"],
+            "set_source_mode" => &["action", "mode"],
+            "patch_zone" => &["action", "index", "fields"],
+            "source_edit" => &["action", "op", "zone", "index", "from", "to", "region_id"],
+            "inspect_region" => &["action", "region_id"],
+            "inspect_layer" => &["action", "layer_id"],
+            "create_kit_instrument"
+            | "create_kit"
+            | "unassign_kit"
+            | "edit_mapping"
+            | "apply_mapping"
+            | "cancel_mapping"
+            | "remove_pad"
+            | "insert_note"
+            | "audition_start"
+            | "audition_stop" => &["action"],
+            _ => return Err(format!("unknown pads action: {name}")),
+        };
+        if let Some(k) = obj.keys().find(|k| !action_fields.contains(&k.as_str())) {
+            return Err(format!("field {k} is not accepted for {name}"));
+        }
+        let allowed = [
+            "action",
+            "open",
+            "instrument_id",
+            "slot",
+            "pad_id",
+            "enabled",
+            "name",
+            "kit_id",
+            "fields",
+            "mode",
+            "index",
+            "zone",
+            "from",
+            "to",
+            "op",
+            "region_id",
+            "layer_id",
+        ];
+        if let Some(k) = obj.keys().find(|k| !allowed.contains(&k.as_str())) {
+            return Err(format!("unknown action field: {k}"));
+        }
+        let uint = |key: &str| {
+            obj.get(key)
+                .and_then(Value::as_u64)
+                .ok_or_else(|| format!("{key} must be an unsigned integer"))
+        };
+        let nullable = |key: &str| -> Result<Option<u64>, String> {
+            match obj.get(key) {
+                Some(Value::Null) => Ok(None),
+                Some(v) => v
+                    .as_u64()
+                    .map(Some)
+                    .ok_or_else(|| format!("{key} must be integer or null")),
+                None => Err(format!("{key} required")),
+            }
+        };
+        match name {
+            "set_open" => {
+                self.open = obj
+                    .get("open")
+                    .and_then(Value::as_bool)
+                    .ok_or("open must be boolean")?;
+            }
+            "select_instrument" => {
+                let id = nullable("instrument_id")?.map(InstrumentId);
+                if id.is_some_and(|id| !editor.song.instruments.contains_key(&id)) {
+                    return Err("unknown instrument".into());
+                }
+                self.instrument = id;
+                self.sync(editor);
+                self.selected = None;
+                self.draft = None;
+                self.insert_mode = false;
+            }
+            "select_slot" => {
+                let slot = uint("slot")?;
+                if slot > 15 {
+                    return Err("slot must be 0..15".into());
+                }
+                let kit = self
+                    .assigned_kit(editor)
+                    .and_then(|id| editor.song.drum_kits.get(&id));
+                self.selected_slot = slot as u8;
+                self.selected = kit.and_then(|k| {
+                    k.pads
+                        .iter()
+                        .find(|(_, p)| p.slot == slot as u8)
+                        .map(|(id, _)| *id)
+                });
+                self.draft = None;
+            }
+            "select_pad" => {
+                let id = nullable("pad_id")?.map(PadId);
+                let kit = self
+                    .assigned_kit(editor)
+                    .and_then(|id| editor.song.drum_kits.get(&id));
+                if let Some(id) = id {
+                    let p = kit.and_then(|k| k.pads.get(&id)).ok_or("unknown pad")?;
+                    self.selected_slot = p.slot;
+                }
+                self.selected = id;
+                self.draft = None;
+            }
+            "set_insert_mode" => {
+                let enabled = obj
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .ok_or("enabled must be boolean")?;
+                if enabled && !editor.edit_mode {
+                    return Err("insert mode requires Edit Mode".into());
+                }
+                self.insert_mode = enabled;
+            }
+            "set_kit_name" => {
+                self.kit_name = obj
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or("name must be string")?
+                    .to_owned()
+            }
+            "choose_kit" => {
+                let id = nullable("kit_id")?.map(DrumKitId);
+                if id.is_some_and(|id| !editor.song.drum_kits.contains_key(&id)) {
+                    return Err("unknown kit".into());
+                }
+                self.kit_choice = id;
+            }
+            "create_kit_instrument" => self.create_kit_instrument(editor)?,
+            "create_kit" => self.create_kit(editor)?,
+            "assign_kit" => {
+                let id = nullable("kit_id")?.map(DrumKitId);
+                if id.is_some_and(|id| !editor.song.drum_kits.contains_key(&id)) {
+                    return Err("unknown kit".into());
+                }
+                editor.assign_kit(self.instrument.ok_or("choose target instrument")?, id)?;
+                self.sync(editor);
+            }
+            "unassign_kit" => {
+                editor.assign_kit(self.instrument.ok_or("choose target instrument")?, None)?;
+                self.sync(editor);
+            }
+            "remove_kit" => editor.remove_drum_kit(DrumKitId(uint("kit_id")?))?,
+            "edit_mapping" => self.edit_mapping(editor)?,
+            "patch_mapping" => {
+                let mut d = self
+                    .draft
+                    .as_ref()
+                    .cloned()
+                    .ok_or("open mapping draft first")?;
+                let f = obj
+                    .get("fields")
+                    .and_then(Value::as_object)
+                    .ok_or("fields object required")?;
+                let allowed = [
+                    "name",
+                    "slot",
+                    "selector_midi",
+                    "region",
+                    "root_midi",
+                    "tune_semitones",
+                    "gain",
+                    "pan",
+                    "mode",
+                    "new_note",
+                    "choke_group",
+                    "sources_tab",
+                ];
+                if let Some(k) = f.keys().find(|k| !allowed.contains(&k.as_str())) {
+                    return Err(format!("unknown mapping field: {k}"));
+                }
+                for (k, v) in f {
+                    match k.as_str() {
+                        "name" => d.value.name = v.as_str().ok_or("name must be string")?.into(),
+                        "slot" => {
+                            let x = v
+                                .as_u64()
+                                .filter(|x| *x <= 15)
+                                .ok_or("slot must be 0..15")?;
+                            d.value.slot = x as u8
+                        }
+                        "selector_midi" | "root_midi" => {
+                            let x = v
+                                .as_u64()
+                                .filter(|x| *x <= 127)
+                                .ok_or("MIDI value must be 0..127")?
+                                as u8;
+                            if k == "selector_midi" {
+                                d.value.note = x
+                            } else {
+                                d.value.root_note = x
+                            }
+                        }
+                        "region" => {
+                            d.value.region = if v.is_null() {
+                                None
+                            } else {
+                                Some(RegionId(v.as_u64().ok_or("region must be integer|null")?))
+                            }
+                        }
+                        "tune_semitones" => {
+                            d.value.tune_semitones = v
+                                .as_i64()
+                                .filter(|x| (-48..=48).contains(x))
+                                .ok_or("tune must be -48..48")?
+                                as i8
+                        }
+                        "gain" => {
+                            d.value.gain = v
+                                .as_f64()
+                                .filter(|x| (0.0..=1.0).contains(x))
+                                .ok_or("gain must be 0..1")?
+                                as f32
+                        }
+                        "pan" => {
+                            d.value.pan = v
+                                .as_f64()
+                                .filter(|x| (-1.0..=1.0).contains(x))
+                                .ok_or("pan must be -1..1")?
+                                as f32
+                        }
+                        "mode" => {
+                            d.value.mode = match v.as_str() {
+                                Some("OneShot") => PadMode::OneShot,
+                                Some("Gated") => PadMode::Gated,
+                                _ => return Err("mode must be OneShot or Gated".into()),
+                            }
+                        }
+                        "new_note" => {
+                            d.value.new_note = match v.as_str() {
+                                Some("Overlap") => PadNewNote::Overlap,
+                                Some("ReleasePrevious") => PadNewNote::ReleasePrevious,
+                                _ => {
+                                    return Err(
+                                        "new_note must be Overlap or ReleasePrevious".into()
+                                    );
+                                }
+                            }
+                        }
+                        "choke_group" => {
+                            d.value.choke_group = if v.is_null() {
+                                None
+                            } else {
+                                Some(
+                                    v.as_u64()
+                                        .filter(|x| (1..=16).contains(x))
+                                        .ok_or("choke_group must be 1..16 or null")?
+                                        as u8,
+                                )
+                            }
+                        }
+                        "sources_tab" => {
+                            d.sources_tab = v.as_bool().ok_or("sources_tab must be boolean")?
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                self.draft = Some(d);
+            }
+            "set_source_mode" => {
+                let d = self.draft.as_mut().ok_or("open mapping draft first")?;
+                match obj.get("mode").and_then(Value::as_str) {
+                    Some("single") => d.sources.layered = false,
+                    Some("velocity_zones") => d.sources.enable_zones(d.value.region)?,
+                    _ => return Err("mode must be single or velocity_zones".into()),
+                }
+            }
+            "patch_zone" => {
+                let d = self.draft.as_mut().ok_or("open mapping draft first")?;
+                let i = uint("index")? as usize;
+                let z = d
+                    .sources
+                    .zones
+                    .get_mut(i)
+                    .ok_or("zone index out of range")?;
+                let f = obj
+                    .get("fields")
+                    .and_then(Value::as_object)
+                    .ok_or("fields object required")?;
+                if let Some(k) = f
+                    .keys()
+                    .find(|k| k.as_str() != "min" && k.as_str() != "max")
+                {
+                    return Err(format!("unknown zone field: {k}"));
+                }
+                for (k, v) in f {
+                    let text = v
+                        .as_str()
+                        .ok_or("zone boundary fields are text")?
+                        .to_owned();
+                    if k == "min" {
+                        z.min = text
+                    } else {
+                        z.max = text
+                    }
+                }
+            }
+            "source_edit" => {
+                let d = self.draft.as_mut().ok_or("open mapping draft first")?;
+                let z = uint("zone")? as usize;
+                let i = uint("index").unwrap_or(0) as usize;
+                match obj.get("op").and_then(Value::as_str) {
+                    Some("split") => d.sources.split(z)?,
+                    Some("remove_zone") => {
+                        if d.sources.zones.len() <= 1 {
+                            return Err("at least one zone required".into());
+                        }
+                        if z >= d.sources.zones.len() {
+                            return Err("zone index out of range".into());
+                        }
+                        d.sources.zones.remove(z);
+                    }
+                    Some("add_alternative") => d.sources.add_alternative(z)?,
+                    Some("move_alternative") => {
+                        let from = uint("from")? as usize;
+                        let to = uint("to")? as usize;
+                        let a = d
+                            .sources
+                            .zones
+                            .get_mut(z)
+                            .ok_or("zone index out of range")?;
+                        if from >= a.alternatives.len() || to >= a.alternatives.len() {
+                            return Err("alternative index out of range".into());
+                        }
+                        a.alternatives.swap(from, to)
+                    }
+                    Some("set_layer_region") => {
+                        let index = uint("index")? as usize;
+                        let region = match obj.get("region_id") {
+                            Some(Value::Null) => None,
+                            Some(v) => Some(RegionId(
+                                v.as_u64().ok_or("region_id must be integer or null")?,
+                            )),
+                            None => return Err("region_id required".into()),
+                        };
+                        if region.is_some_and(|id| !editor.song.regions.contains_key(&id)) {
+                            return Err("unknown region".into());
+                        }
+                        let layer = d
+                            .sources
+                            .zones
+                            .get_mut(z)
+                            .and_then(|zone| zone.alternatives.get_mut(index))
+                            .ok_or("alternative index out of range")?;
+                        layer.region = region;
+                    }
+                    Some("remove_alternative") => {
+                        let a = &mut d
+                            .sources
+                            .zones
+                            .get_mut(z)
+                            .ok_or("zone index out of range")?
+                            .alternatives;
+                        if a.len() <= 1 || i >= a.len() {
+                            return Err("cannot remove alternative".into());
+                        }
+                        a.remove(i);
+                    }
+                    _ => return Err("unknown source edit op".into()),
+                }
+            }
+            "apply_mapping" => {
+                let d = self.draft.take().ok_or("open mapping draft first")?;
+                if d.revision != editor.revision() {
+                    self.draft = Some(d);
+                    return Err("mapping draft stale".into());
+                }
+                let (region, zones) = d.sources.parse(d.value.region)?;
+                let mut value = d.value.clone();
+                value.region = region;
+                value.velocity_zones = zones;
+                match editor.upsert_drum_pad(d.kit, d.id, value) {
+                    Ok(()) => {
+                        self.selected = Some(d.id);
+                        self.selected_slot = d.value.slot;
+                    }
+                    Err(e) => {
+                        self.draft = Some(d);
+                        return Err(e);
+                    }
+                }
+            }
+            "cancel_mapping" => self.draft = None,
+            "remove_pad" => {
+                let d = self.draft.as_ref().ok_or("open mapping draft first")?;
+                editor.remove_drum_pad(d.kit, d.id)?;
+                self.draft = None;
+                self.selected = None;
+            }
+            "insert_note" => {
+                if !self.insert(editor) {
+                    return Err(self.error.clone().unwrap_or_else(|| "insert failed".into()));
+                }
+            }
+            "audition_start" => {
+                let id = self.selected.ok_or("select a pad before audition")?;
+                let playable = self
+                    .assigned_kit(editor)
+                    .and_then(|kit| editor.song.drum_kits.get(&kit))
+                    .and_then(|kit| kit.pads.get(&id))
+                    .is_some_and(DrumPad::has_source);
+                if !playable || self.draft.is_some() {
+                    return Err("audition requires a committed pad with a source".into());
+                }
+                self.audition_action = self
+                    .audition_request()
+                    .map(crate::audition_ui::Action::Start);
+                if self.audition_action.is_none() {
+                    return Err("select a committed mapped pad before audition".into());
+                }
+            }
+            "audition_stop" => self.audition_action = Some(crate::audition_ui::Action::Stop),
+            "inspect_region" => {
+                let id = RegionId(uint("region_id")?);
+                if !editor.song.regions.contains_key(&id) {
+                    return Err("unknown region".into());
+                }
+                self.inspect_region = self.instrument.map(|i| (id, i));
+            }
+            "inspect_layer" => {
+                self.inspect_layer = Some(PadLayerId(uint("layer_id")?));
+            }
+            _ => return Err(format!("unknown pads action: {name}")),
+        }
+        Ok(self.agent_state(editor))
+    }
     pub fn reset_document(&mut self) {
         *self = Self::default();
     }
@@ -392,17 +872,14 @@ impl PadUi {
         let instrument = self.instrument.ok_or("Choose a target instrument first")?;
         let id = DrumKitId(next_id(editor.song.drum_kits.keys().map(|id| id.0))?);
         let mut candidate = editor.song.clone();
-        candidate.upsert_drum_kit(
-            id,
-            DrumKitInstrument {
-                name: if self.kit_name.trim().is_empty() {
-                    format!("Kit {}", id.0)
-                } else {
-                    self.kit_name.trim().into()
-                },
-                pads: BTreeMap::new(),
+        candidate.upsert_drum_kit(id, DrumKitInstrument {
+            name: if self.kit_name.trim().is_empty() {
+                format!("Kit {}", id.0)
+            } else {
+                self.kit_name.trim().into()
             },
-        )?;
+            pads: BTreeMap::new(),
+        })?;
         candidate.assign_kit(instrument, Some(id))?;
         editor.apply_document_edit(candidate)?;
         self.kit_choice = Some(id);
@@ -429,23 +906,20 @@ impl PadUi {
                 .chain(0..36)
                 .find(|note| kit.pads.values().all(|pad| pad.note != *note))
                 .ok_or("No unused selector note")?;
-            (
-                PadId(next_id(kit.pads.keys().map(|id| id.0))?),
-                DrumPad {
-                    slot: self.selected_slot,
-                    name: format!("Pad {:02}", self.selected_slot + 1),
-                    note,
-                    region: None,
-                    velocity_zones: vec![],
-                    root_note: 60,
-                    tune_semitones: 0,
-                    gain: 1.0,
-                    pan: 0.0,
-                    mode: PadMode::OneShot,
-                    new_note: PadNewNote::Overlap,
-                    choke_group: None,
-                },
-            )
+            (PadId(next_id(kit.pads.keys().map(|id| id.0))?), DrumPad {
+                slot: self.selected_slot,
+                name: format!("Pad {:02}", self.selected_slot + 1),
+                note,
+                region: None,
+                velocity_zones: vec![],
+                root_note: 60,
+                tune_semitones: 0,
+                gain: 1.0,
+                pan: 0.0,
+                mode: PadMode::OneShot,
+                new_note: PadNewNote::Overlap,
+                choke_group: None,
+            })
         };
         self.draft = Some(MappingDraft {
             revision: editor.revision(),
@@ -920,6 +1394,20 @@ fn source_controls(ui: &mut egui::Ui, draft: &mut MappingDraft, song: &Song) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_schema_is_discoverable_and_unknown_action_is_atomic() {
+        let mut editor = editor();
+        let before = editor.song.clone();
+        let mut ui = PadUi::default();
+        let state = ui.agent_state(&editor);
+        assert!(state["actions"]["patch_mapping"].is_object());
+        assert!(
+            ui.agent_action(&mut editor, None, json!({"action":"not_an_action"}))
+                .is_err()
+        );
+        assert_eq!(editor.song, before);
+        assert_eq!(ui.agent_state(&editor)["selected_pad"], Value::Null);
+    }
     fn editor() -> Editor {
         let mut editor = Editor {
             edit_mode: true,
@@ -929,29 +1417,23 @@ mod tests {
         for pattern in song.patterns.values_mut() {
             pattern.tracks.clear();
         }
-        song.register_sample(
-            crate::song::SampleId(1),
-            crate::song::SampleAsset {
-                path: "unit-no-io.wav".into(),
-                sha256: "0".repeat(64),
-                sample_rate: 48_000,
-                channels: 1,
-                frames: 4800,
-            },
-        )
+        song.register_sample(crate::song::SampleId(1), crate::song::SampleAsset {
+            path: "unit-no-io.wav".into(),
+            sha256: "0".repeat(64),
+            sample_rate: 48_000,
+            channels: 1,
+            frames: 4800,
+        })
         .unwrap();
-        song.upsert_region(
-            RegionId(1),
-            crate::song::SampleRegion {
-                name: "Unit region".into(),
-                sample: crate::song::SampleId(1),
-                start_frame: 0,
-                end_frame: 4800,
-                root_note: 60,
-                amp_envelope: None,
-                forward_loop: None,
-            },
-        )
+        song.upsert_region(RegionId(1), crate::song::SampleRegion {
+            name: "Unit region".into(),
+            sample: crate::song::SampleId(1),
+            start_frame: 0,
+            end_frame: 4800,
+            root_note: 60,
+            amp_envelope: None,
+            forward_loop: None,
+        })
         .unwrap();
         editor.apply_document_edit(song).unwrap();
         let pad = DrumPad {
@@ -969,13 +1451,10 @@ mod tests {
             choke_group: None,
         };
         editor
-            .upsert_drum_kit(
-                DrumKitId(1),
-                DrumKitInstrument {
-                    name: "Kit".into(),
-                    pads: BTreeMap::from([(PadId(42), pad)]),
-                },
-            )
+            .upsert_drum_kit(DrumKitId(1), DrumKitInstrument {
+                name: "Kit".into(),
+                pads: BTreeMap::from([(PadId(42), pad)]),
+            })
             .unwrap();
         editor
             .assign_kit(InstrumentId(1), Some(DrumKitId(1)))
@@ -1056,9 +1535,11 @@ mod tests {
         let (region, zones) = sources.parse(pad.region).unwrap();
         pad.region = region;
         pad.velocity_zones = zones;
-        assert!(editor
-            .upsert_drum_pad(DrumKitId(1), PadId(42), pad.clone())
-            .is_err());
+        assert!(
+            editor
+                .upsert_drum_pad(DrumKitId(1), PadId(42), pad.clone())
+                .is_err()
+        );
         assert_eq!(editor.song, before);
         assert_eq!(editor.revision(), revision);
         assert_eq!(sources.zones[0].max, "62");
@@ -1144,13 +1625,10 @@ mod tests {
         assert_eq!(ui.selected, Some(PadId(42)));
         assert_eq!(ui.selected_slot, 2);
         editor
-            .upsert_drum_kit(
-                DrumKitId(2),
-                DrumKitInstrument {
-                    name: "Different kit".into(),
-                    pads: BTreeMap::from([(PadId(42), moved)]),
-                },
-            )
+            .upsert_drum_kit(DrumKitId(2), DrumKitInstrument {
+                name: "Different kit".into(),
+                pads: BTreeMap::from([(PadId(42), moved)]),
+            })
             .unwrap();
         editor
             .assign_kit(InstrumentId(1), Some(DrumKitId(2)))
@@ -1178,9 +1656,11 @@ mod tests {
         let mut duplicate = editor.song.drum_kits[&DrumKitId(1)].pads[&PadId(42)].clone();
         duplicate.name = "Conflicting selector".into();
         duplicate.slot = 3;
-        assert!(editor
-            .upsert_drum_pad(DrumKitId(1), PadId(43), duplicate)
-            .is_err());
+        assert!(
+            editor
+                .upsert_drum_pad(DrumKitId(1), PadId(43), duplicate)
+                .is_err()
+        );
         assert_eq!(editor.song, before);
     }
 }

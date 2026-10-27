@@ -82,6 +82,39 @@ pub(super) struct MeterView {
     inspection: Option<InspectionSnapshot>,
 }
 impl MeterView {
+    pub(super) fn agent_state(&self) -> serde_json::Value {
+        serde_json::json!({"generation":self.generation,"layout":self.layout.as_deref(),"latest_report":self.report,"raw_report":self.raw,"unavailable_reason":self.reason,"dropped_reports":self.dropped,"received_reports":self.received,"coalesced_reports":self.coalesced,"last_poll_reports":self.last_poll_reports,"inspection_snapshot":self.inspection.as_ref().map(|s|serde_json::json!({"raw_report":s.text,"generation":s.generation,"report_index":s.report_index,"emitted_start":s.emitted_start,"emitted_end_exclusive":s.emitted_end})),"following_latest":self.inspection.is_none(),"master_display_db":self.master.map(|p|p.db),"track_display_db":self.tracks.iter().map(|(id,p)|(id.0,p.map(|p|p.db))).collect::<BTreeMap<_,_>>()})
+    }
+
+    pub(super) fn agent_action(&mut self, action: &serde_json::Value) -> Result<(), String> {
+        let object = action
+            .as_object()
+            .ok_or("Meter action must be a JSON object")?;
+        let verb = object
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("Meter action requires string action")?;
+        if object.keys().any(|key| key != "action") {
+            return Err("Unknown meter action field".into());
+        }
+        match verb {
+            "snapshot_latest" => {
+                let report = self.report.ok_or_else(|| self.empty_reason())?;
+                let generation = self.generation.ok_or("Meter generation unavailable")?;
+                self.inspection = Some(InspectionSnapshot {
+                    text: self.raw.clone(),
+                    generation,
+                    report_index: report.report_index,
+                    emitted_start: report.emitted_start,
+                    emitted_end: report.emitted_end_exclusive,
+                });
+            }
+            "follow_latest" => self.inspection = None,
+            _ => return Err(format!("Unknown meter action `{verb}`")),
+        }
+        Ok(())
+    }
+
     pub(super) fn clear(&mut self, reason: impl Into<String>) {
         let reason = reason.into();
         if self.report.is_none()

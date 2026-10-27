@@ -7,6 +7,7 @@ use crate::{
 };
 use eframe::egui::{self, Align2, Color32, FontId, Rect, RichText, Stroke, Vec2};
 use std::collections::BTreeMap;
+mod agent;
 
 pub(crate) fn cell_is_read_only(editor: &Editor) -> bool {
     editor.has_grid() && editor.pattern().track_aliases.contains_key(&editor.track)

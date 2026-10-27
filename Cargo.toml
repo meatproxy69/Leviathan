@@ -64,3 +64,7 @@ required-features = ["realtime"]
 [[bin]]
 name = "leviathan_mcp"
 path = "src/bin/leviathan_mcp.rs"
+
+[[bin]]
+name = "leviathan_agent"
+path = "src/bin/leviathan_agent.rs"

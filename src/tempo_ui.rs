@@ -228,6 +228,194 @@ pub(crate) struct TempoUi {
     notice: String,
 }
 impl TempoUi {
+    pub(crate) fn agent_action(
+        &mut self,
+        action: &serde_json::Value,
+        editor: &mut Editor,
+        context: Context<'_>,
+    ) -> Result<Option<WorkRequest>, String> {
+        let op = action
+            .get("operation")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("tempo operation required")?;
+        match op {
+            "patch" => {
+                let mut draft = self.draft.clone();
+                let fields = action
+                    .get("fields")
+                    .and_then(serde_json::Value::as_object)
+                    .ok_or("fields must be object")?;
+                for (k, v) in fields {
+                    match k.as_str() {
+                        "mode" => {
+                            draft.mode = match v.as_str().ok_or("mode must be string")? {
+                                "markers" => EvidenceMode::Markers,
+                                "cached" => EvidenceMode::Cached,
+                                _ => return Err("mode must be markers or cached".into()),
+                            }
+                        }
+                        "marker" => {
+                            draft.marker = if v.is_null() {
+                                None
+                            } else {
+                                Some(MarkerSetId(v.as_u64().ok_or("marker must be unsigned")?))
+                            }
+                        }
+                        "start_index" => {
+                            draft.start_index = v.as_str().ok_or("start_index must be text")?.into()
+                        }
+                        "end_index" => {
+                            draft.end_index = v.as_str().ok_or("end_index must be text")?.into()
+                        }
+                        "include_start" => {
+                            draft.include_start =
+                                v.as_bool().ok_or("include_start must be boolean")?
+                        }
+                        "start_frame" => {
+                            draft.start_frame = v.as_str().ok_or("start_frame must be text")?.into()
+                        }
+                        "end_frame" => {
+                            draft.end_frame = v.as_str().ok_or("end_frame must be text")?.into()
+                        }
+                        "basis" => {
+                            draft.basis =
+                                serde_json::from_value(v.clone()).map_err(|e| e.to_string())?
+                        }
+                        "min_bpm" => {
+                            draft.min_bpm = v.as_str().ok_or("min_bpm must be text")?.into()
+                        }
+                        "max_bpm" => {
+                            draft.max_bpm = v.as_str().ok_or("max_bpm must be text")?.into()
+                        }
+                        _ => return Err(format!("unknown tempo draft field: {k}")),
+                    }
+                }
+                self.draft = draft;
+                self.cancel_commit();
+                self.ready = None;
+                self.selected = None;
+                self.use_plan = None;
+                self.plan_key = None;
+                Ok(None)
+            }
+            "analyze" => {
+                if context.busy {
+                    return Err("source worker is busy".into());
+                };
+                self.sync(editor, context.source, context.asset);
+                let req = self.request(
+                    editor,
+                    context.source,
+                    context.asset,
+                    context.cache,
+                    context.onset,
+                    context.path,
+                )?;
+                Ok(Some(WorkRequest::Analyze(Box::new(req))))
+            }
+            "select_candidate" => {
+                let i = action
+                    .get("index")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or("index must be unsigned")? as usize;
+                let ready = self.ready.as_ref().ok_or("analyze timing evidence first")?;
+                if i >= ready.preview.analysis().candidates.len() {
+                    return Err("candidate index outside review".into());
+                };
+                self.selected = Some(i);
+                self.use_plan = None;
+                self.plan_key = None;
+                Ok(None)
+            }
+            "set_pulse_page" => {
+                let page = action
+                    .get("page")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or("page must be unsigned")? as usize;
+                let index = self.selected.ok_or("select a tempo candidate first")?;
+                let ready = self.ready.as_ref().ok_or("analyze timing evidence first")?;
+                let count = ready
+                    .preview
+                    .pulse_page(index, 0, 128)?
+                    .total
+                    .div_ceil(128)
+                    .max(1);
+                if page >= count {
+                    return Err("pulse page outside review".into());
+                };
+                self.pulse_page = page;
+                Ok(None)
+            }
+            "set_target" => {
+                let id = MarkerSetId(
+                    action
+                        .get("id")
+                        .and_then(serde_json::Value::as_u64)
+                        .ok_or("id must be unsigned")?,
+                );
+                if editor
+                    .song
+                    .marker_sets
+                    .get(&id)
+                    .is_none_or(|m| m.sample != context.source)
+                {
+                    return Err("target marker set is missing or belongs to another source".into());
+                };
+                self.target = Some(id);
+                self.use_plan = None;
+                self.plan_key = None;
+                Ok(None)
+            }
+            "apply_bpm" => {
+                if context.busy || !editor.edit_mode {
+                    return Err("BPM apply requires idle source worker and edit mode".into());
+                };
+                let selected = self.selected.ok_or("select a candidate first")?;
+                let target = self.target.ok_or("select a marker target first")?;
+                let ready = self.ready.as_ref().ok_or("analyze timing evidence first")?;
+                if !self.current(editor, context.source, context.asset, context.onset) {
+                    return Err("tempo review is stale".into());
+                };
+                let plan = Arc::new(ready.preview.use_bpm(target, selected)?);
+                if let Some(onset_config) = ready.onset_config.clone() {
+                    self.commit_authorized = true;
+                    Ok(Some(WorkRequest::Verify(Box::new(Verification {
+                        revision: ready.revision,
+                        source: context.source,
+                        asset: context.asset.clone(),
+                        path: context.path,
+                        draft: self.draft.clone(),
+                        epoch: self.epoch,
+                        onset: onset_config,
+                        tempo_id: ready.preview.id().into(),
+                        selected,
+                        target,
+                        plan,
+                    }))))
+                } else {
+                    let before = editor.revision();
+                    let result = editor.commit_tempo_preview(ready.revision, &plan);
+                    self.committed(result, before, editor.revision());
+                    Ok(None)
+                }
+            }
+            "cancel" => {
+                self.cancel_commit();
+                Ok(None)
+            }
+            "commit_verified" => {
+                self.finish_verified(
+                    editor,
+                    context.source,
+                    context.asset,
+                    context.onset,
+                    editor.edit_mode,
+                );
+                Ok(None)
+            }
+            _ => Err(format!("unsupported tempo operation: {op}")),
+        }
+    }
     pub(crate) fn reset(&mut self) {
         self.cancel_commit();
         self.epoch = self.epoch.wrapping_add(1);
@@ -831,7 +1019,6 @@ impl TempoUi {
             egui::ScrollArea::vertical().id_salt("tempo-raw-evidence").max_height(110.0).show_rows(ui,16.0,ready.preview.points().len(),|ui,rows| {for row in rows {ui.monospace(format!("Evidence {:04}   SOURCE frame {}",row,ready.preview.points()[row]));}});
         });
     }
-    #[cfg(any(test, feature = "ui-capture"))]
     pub(crate) fn capture_state(
         &self,
         editor: &Editor,

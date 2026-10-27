@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use eframe::egui::{self, Color32, RichText};
+use serde_json::{json, Value};
 use std::{
     sync::mpsc::{self, Receiver, TryRecvError},
     thread,
@@ -107,6 +108,175 @@ pub(crate) struct TransformUi {
     notice: Option<String>,
 }
 impl TransformUi {
+    pub(crate) fn agent_state(&self, editor: &Editor) -> Value {
+        let draft = self.draft.as_ref();
+        let current = draft.is_some_and(|_| self.current(editor));
+        json!({
+            "component":"transform","open":self.is_open(),"busy":self.busy(),"current":current,"phase":if self.busy(){"busy"}else if current&&self.cached.is_some(){"preview_ready"}else if self.is_open(){"draft"}else{"closed"},
+            "actions":["open","set_draft","preview","poll","commit","cancel","close","reset"],
+            "draft_fields":{"pattern":"u64","track":"u64","columns":"array<u16>","row_start":"integer text, inclusive","row_end":"integer text, exclusive","fields":{"notes":"bool","glide_targets":"bool","velocity":"bool","timing":"bool"},"transpose":"integer text -48..48","velocity_scale":"decimal text 0..4","nudge":"integer text -48000..48000","swing_division":"null|Sixteenth|ThirtySecond|SixtyFourth|OneTwentyEighth","swing_amount":"integer text 0..50"},
+            "draft":draft.map(|d|json!({"revision":d.revision,"cursor":{"occurrence":d.context.occurrence,"pattern":d.context.pattern,"track":d.context.track,"row":d.context.row,"column":d.context.column,"field":d.context.field},"pattern":d.config.scope.pattern,"track":d.config.scope.track,"columns":d.config.scope.columns,"row_start":d.row_start,"row_end":d.row_end,"fields":d.config.fields,"transpose":d.transpose,"velocity_scale":d.velocity_scale,"nudge":d.nudge,"swing_division":d.config.swing.map(|s|s.division),"swing_amount":d.swing_amount,"parsed_config":d.effective_config().ok()})),
+            "preview":self.cached.as_ref().map(|c|json!({"revision":c.revision,"current":current,"config":c.preview.config(),"summary":c.preview.summary(),"changes":c.preview.changes()})),"error":self.error,"notice":self.notice,"edit_mode":editor.edit_mode
+        })
+    }
+
+    pub(crate) fn agent_action(
+        &mut self,
+        editor: &mut Editor,
+        _base: Option<&std::path::Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let object = action.as_object().ok_or("Action must be a JSON object")?;
+        let verb = object
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("Action requires a string `action`")?;
+        match verb {
+            "open" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.open(editor);
+            }
+            "cancel" | "close" | "reset" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.reset_document();
+            }
+            "set_draft" => {
+                ensure_agent_fields(object, &["action", "values"])?;
+                let values = object
+                    .get("values")
+                    .and_then(Value::as_object)
+                    .ok_or("set_draft requires an object `values`")?;
+                let mut draft = self
+                    .draft
+                    .clone()
+                    .ok_or("Open transform before setting its draft")?;
+                for (field, value) in values {
+                    match field.as_str() {
+                        "pattern" => {
+                            draft.config.scope.pattern =
+                                PatternId(value.as_u64().ok_or("pattern must be u64")?)
+                        }
+                        "track" => {
+                            draft.config.scope.track =
+                                TrackId(value.as_u64().ok_or("track must be u64")?)
+                        }
+                        "columns" => {
+                            draft.config.scope.columns = serde_json::from_value(value.clone())
+                                .map_err(|_| "columns must be an array of u16")?
+                        }
+                        "row_start" => {
+                            draft.row_start =
+                                value.as_str().ok_or("row_start must remain text")?.into()
+                        }
+                        "row_end" => {
+                            draft.row_end = value.as_str().ok_or("row_end must remain text")?.into()
+                        }
+                        "transpose" => {
+                            draft.transpose =
+                                value.as_str().ok_or("transpose must remain text")?.into()
+                        }
+                        "velocity_scale" => {
+                            draft.velocity_scale = value
+                                .as_str()
+                                .ok_or("velocity_scale must remain text")?
+                                .into()
+                        }
+                        "nudge" => {
+                            draft.nudge = value.as_str().ok_or("nudge must remain text")?.into()
+                        }
+                        "swing_amount" => {
+                            draft.swing_amount = value
+                                .as_str()
+                                .ok_or("swing_amount must remain text")?
+                                .into()
+                        }
+                        "fields" => {
+                            let fields = value.as_object().ok_or("fields must be an object")?;
+                            ensure_agent_fields(
+                                fields,
+                                &["notes", "glide_targets", "velocity", "timing"],
+                            )?;
+                            if let Some(v) = fields.get("notes") {
+                                draft.config.fields.notes =
+                                    v.as_bool().ok_or("notes must be boolean")?;
+                            }
+                            if let Some(v) = fields.get("glide_targets") {
+                                draft.config.fields.glide_targets =
+                                    v.as_bool().ok_or("glide_targets must be boolean")?;
+                            }
+                            if let Some(v) = fields.get("velocity") {
+                                draft.config.fields.velocity =
+                                    v.as_bool().ok_or("velocity must be boolean")?;
+                            }
+                            if let Some(v) = fields.get("timing") {
+                                draft.config.fields.timing =
+                                    v.as_bool().ok_or("timing must be boolean")?;
+                            }
+                        }
+                        "swing_division" => {
+                            draft.config.swing = match value.as_str() {
+                                None | Some("none") => None,
+                                Some("Sixteenth") => Some(TransformSwing {
+                                    division: Subdivision::Sixteenth,
+                                    amount_percent: 0,
+                                }),
+                                Some("ThirtySecond") => Some(TransformSwing {
+                                    division: Subdivision::ThirtySecond,
+                                    amount_percent: 0,
+                                }),
+                                Some("SixtyFourth") => Some(TransformSwing {
+                                    division: Subdivision::SixtyFourth,
+                                    amount_percent: 0,
+                                }),
+                                Some("OneTwentyEighth") => Some(TransformSwing {
+                                    division: Subdivision::OneTwentyEighth,
+                                    amount_percent: 0,
+                                }),
+                                Some(_) => return Err("Unknown swing division".into()),
+                            };
+                        }
+                        _ => return Err(format!("Unknown transform draft field `{field}`")),
+                    }
+                }
+                if let Some(swing) = &mut draft.config.swing {
+                    swing.amount_percent =
+                        parse_integer(&draft.swing_amount, 0, 50, "Swing percent")? as u8;
+                }
+                if self.draft.as_ref() != Some(&draft) {
+                    self.invalidate("Settings changed: preview the exact new transform.");
+                }
+                self.draft = Some(draft);
+            }
+            "preview" => {
+                ensure_agent_fields(object, &["action"])?;
+                if self.draft.is_none() {
+                    return Err("Open transform before previewing".into());
+                }
+                self.start_preview(editor);
+            }
+            "poll" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.poll();
+            }
+            "commit" => {
+                ensure_agent_fields(object, &["action"])?;
+                if !editor.edit_mode {
+                    return Err("Enable Edit Mode to commit transform".into());
+                }
+                if !self.current(editor) {
+                    return Err("Transform preview is stale or missing".into());
+                }
+                let c = self.cached.as_ref().unwrap();
+                if c.preview.summary().changed_cells == 0 {
+                    return Err("Transform preview has no changes to commit".into());
+                }
+                editor.commit_transform_preview(c.revision, &c.preview)?;
+                self.reset_document();
+            }
+            _ => return Err(format!("Unknown transform action `{verb}`")),
+        }
+        Ok(self.agent_state(editor))
+    }
     pub(crate) fn open(&mut self, editor: &Editor) {
         let Some(context) = Context::of(editor) else {
             return;
@@ -328,6 +498,16 @@ impl TransformUi {
         }
     }
 }
+fn ensure_agent_fields(
+    object: &serde_json::Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("Unknown action field `{key}`"));
+    }
+    Ok(())
+}
+
 fn scope_fields(ui: &mut egui::Ui, editor: &Editor, draft: &mut Draft) {
     ui.label(RichText::new("SCOPE · stored rows [start, end), zero-based").strong());
     ui.horizontal(|ui| {
@@ -666,6 +846,28 @@ fn cell_summary(cell: &Cell) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_state_discloses_phase_and_rejects_unknown_actions() {
+        let mut e = Editor::default();
+        let mut ui = TransformUi::default();
+        assert_eq!(ui.agent_state(&e)["phase"], "closed");
+        assert!(ui
+            .agent_action(&mut e, None, json!({"action":"unlisted"}))
+            .is_err());
+        ui.agent_action(&mut e, None, json!({"action":"open"}))
+            .unwrap();
+        assert!(ui.agent_state(&e)["open"].as_bool().unwrap());
+        assert!(ui
+            .agent_action(
+                &mut e,
+                None,
+                json!({"action":"set_draft","values":{"unknown":true}})
+            )
+            .is_err());
+        ui.agent_action(&mut e, None, json!({"action":"cancel"}))
+            .unwrap();
+        assert!(!ui.agent_state(&e)["open"].as_bool().unwrap());
+    }
     #[test]
     fn canceled_preview_is_tracked_until_completion_and_never_reinstalled() {
         let editor = Editor::default();

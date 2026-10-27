@@ -1,15 +1,17 @@
 //! Native melodic key-zone authoring. The ordinary Song remains the only event
 //! authority; this inspector has no keyboard audition or audio ownership.
 use crate::{
-    editor::{note_label, Editor},
+    editor::{Editor, note_label},
     song::{
         InstrumentId, InstrumentKind, KeyZone, KeyZoneId, MultisampleId, MultisampleInstrument,
         RegionId, Song,
     },
-    tracker_ui::{grid_id, AQUA},
+    tracker_ui::{AQUA, grid_id},
 };
 use eframe::egui::{self, Color32, RichText};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::path::Path;
 
 const MUTED: Color32 = Color32::from_rgb(133, 157, 167);
 const WARNING: Color32 = Color32::from_rgb(229, 185, 112);
@@ -48,6 +50,7 @@ impl ZoneDraft {
         })
     }
 }
+#[derive(Clone)]
 struct Draft {
     revision: u64,
     base: Song,
@@ -113,18 +116,15 @@ impl Draft {
         }
         let id = KeyZoneId(self.next_zone.ok_or("Stable zone ID namespace exhausted")?);
         self.next_zone = id.0.checked_add(1);
-        self.zones.insert(
-            id,
-            ZoneDraft {
-                name: format!("Zone {}", id.0),
-                note_min: "0".into(),
-                note_max: "127".into(),
-                velocity_min: "0".into(),
-                velocity_max: "127".into(),
-                region: None,
-                root: "60".into(),
-            },
-        );
+        self.zones.insert(id, ZoneDraft {
+            name: format!("Zone {}", id.0),
+            note_min: "0".into(),
+            note_max: "127".into(),
+            velocity_min: "0".into(),
+            velocity_max: "127".into(),
+            region: None,
+            root: "60".into(),
+        });
         self.selected = Some(id);
         Ok(())
     }
@@ -183,6 +183,208 @@ impl Default for MultisampleUi {
     }
 }
 impl MultisampleUi {
+    pub(crate) fn agent_state(&self, editor: &Editor) -> Value {
+        let draft=self.draft.as_ref().map(|d|json!({"revision":d.revision,"map_id":d.id.0,"name":d.name,"selected_zone":d.selected.map(|v|v.0),"zones":d.zones.iter().map(|(id,z)|json!({"id":id.0,"name":z.name,"note_min":z.note_min,"note_max":z.note_max,"velocity_min":z.velocity_min,"velocity_max":z.velocity_max,"region":z.region.map(|r|r.0),"root_midi":z.root})).collect::<Vec<_>>()}));
+        json!({"component":"multisample","open":self.open,"edit_mode":editor.edit_mode,"instrument":self.instrument.map(|v|v.0),"map":self.map.map(|v|v.0),"new_name":self.new_name,"draft":draft,"error":self.error,"notice":self.notice,
+            "instruments":editor.song.instruments.iter().map(|(id,i)|json!({"id":id.0,"name":i.name,"assigned_map":match i.kind{InstrumentKind::Multisample{map}=>Some(map.0),_=>None}})).collect::<Vec<_>>(),
+            "maps":editor.song.multisamples.iter().map(|(id,m)|json!({"id":id.0,"name":m.name,"zones":m.zones.iter().map(|(zid,z)|json!({"id":zid.0,"name":z.name,"note_min":z.note_min,"note_max":z.note_max,"velocity_min":z.velocity_min,"velocity_max":z.velocity_max,"region":z.region.0,"root_midi":z.root_note})).collect::<Vec<_>>()})).collect::<Vec<_>>(),
+            "regions":editor.song.regions.iter().map(|(id,r)|json!({"id":id.0,"name":r.name,"root_midi":r.root_note,"start_frame":r.start_frame,"end_frame":r.end_frame})).collect::<Vec<_>>(),
+            "actions":{"select_instrument":{"instrument_id":"integer|null"},"select_map":{"map_id":"integer|null"},"open_for":{"instrument_id":"integer"},"set_new_name":{"name":"string"},"create":{},"assign":{},"detach":{},"remove_map":{},"reload":{},"select_zone":{"zone_id":"integer|null"},"add_zone":{},"remove_zone":{"zone_id":"integer"},"patch_map":{"name":"string"},"patch_zone":{"zone_id":"integer","fields":["name","note_min","note_max","velocity_min","velocity_max","region","root"]},"apply":{},"fresh_copy":{},"inspect_region":{}},
+            "policy":{"requires_edit_mode_for_mutation":true,"apply_is_atomic_single_edit":true,"zones_use_stable_ids_sorted_by_id":true}})
+    }
+    pub(crate) fn agent_action(
+        &mut self,
+        editor: &mut Editor,
+        _base: Option<&Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let o = action.as_object().ok_or("action must be an object")?;
+        let name = o
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("action name required")?;
+        let fields: &[&str] = match name {
+            "select_instrument" | "open_for" => &["action", "instrument_id"],
+            "select_map" => &["action", "map_id"],
+            "set_new_name" | "patch_map" => &["action", "name"],
+            "select_zone" => &["action", "zone_id"],
+            "remove_zone" => &["action", "zone_id"],
+            "patch_zone" => &["action", "zone_id", "fields"],
+            "create" | "assign" | "detach" | "remove_map" | "reload" | "add_zone" | "apply"
+            | "fresh_copy" | "inspect_region" => &["action"],
+            _ => return Err(format!("unknown multisample action: {name}")),
+        };
+        if let Some(k) = o.keys().find(|k| !fields.contains(&k.as_str())) {
+            return Err(format!("field {k} is not accepted for {name}"));
+        }
+        let allowed = [
+            "action",
+            "instrument_id",
+            "map_id",
+            "name",
+            "zone_id",
+            "fields",
+        ];
+        if let Some(k) = o.keys().find(|k| !allowed.contains(&k.as_str())) {
+            return Err(format!("unknown action field: {k}"));
+        }
+        let integer = |k: &str| {
+            o.get(k)
+                .and_then(Value::as_u64)
+                .ok_or_else(|| format!("{k} must be unsigned integer"))
+        };
+        let nullable = |k: &str| -> Result<Option<u64>, String> {
+            match o.get(k) {
+                Some(Value::Null) => Ok(None),
+                Some(v) => v
+                    .as_u64()
+                    .map(Some)
+                    .ok_or_else(|| format!("{k} must be integer|null")),
+                None => Err(format!("{k} required")),
+            }
+        };
+        match name {
+            "select_instrument" => {
+                let id = nullable("instrument_id")?.map(InstrumentId);
+                if id.is_some_and(|id| !editor.song.instruments.contains_key(&id)) {
+                    return Err("unknown instrument".into());
+                }
+                self.instrument = id;
+                self.map = assigned_map(editor, id);
+                self.reload(editor);
+                self.error = None;
+            }
+            "select_map" => {
+                let id = nullable("map_id")?.map(MultisampleId);
+                if id.is_some_and(|id| !editor.song.multisamples.contains_key(&id)) {
+                    return Err("unknown map".into());
+                }
+                self.map = id;
+                self.reload(editor);
+                self.error = None;
+            }
+            "open_for" => self.open_for(editor, InstrumentId(integer("instrument_id")?)),
+            "set_new_name" => {
+                self.new_name = o
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or("name must be string")?
+                    .into()
+            }
+            "create" => self.create(editor)?,
+            "assign" => self.assign(editor, false)?,
+            "detach" => self.assign(editor, true)?,
+            "remove_map" => self.remove(editor)?,
+            "reload" => {
+                self.reload(editor);
+                self.error = None;
+                self.notice.clear()
+            }
+            "select_zone" => {
+                let id = nullable("zone_id")?.map(KeyZoneId);
+                let d = self.draft.as_mut().ok_or("choose a map first")?;
+                if id.is_some_and(|id| !d.zones.contains_key(&id)) {
+                    return Err("unknown zone".into());
+                }
+                d.selected = id;
+            }
+            "add_zone" => self
+                .draft
+                .as_mut()
+                .ok_or("choose a map first")?
+                .add_zone()?,
+            "remove_zone" => {
+                let id = KeyZoneId(integer("zone_id")?);
+                let d = self.draft.as_mut().ok_or("choose a map first")?;
+                if !d.zones.contains_key(&id) {
+                    return Err("unknown zone".into());
+                }
+                d.zones.remove(&id);
+                if d.selected == Some(id) {
+                    d.selected = d.zones.keys().next().copied();
+                }
+            }
+            "patch_map" => {
+                let d = self.draft.as_mut().ok_or("choose a map first")?;
+                d.name = o
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or("name must be string")?
+                    .into()
+            }
+            "patch_zone" => {
+                let id = KeyZoneId(integer("zone_id")?);
+                let f = o
+                    .get("fields")
+                    .and_then(Value::as_object)
+                    .ok_or("fields object required")?;
+                let fields = [
+                    "name",
+                    "note_min",
+                    "note_max",
+                    "velocity_min",
+                    "velocity_max",
+                    "region",
+                    "root",
+                ];
+                if let Some(k) = f.keys().find(|k| !fields.contains(&k.as_str())) {
+                    return Err(format!("unknown zone field: {k}"));
+                }
+                let mut d = self.draft.as_ref().cloned().ok_or("choose a map first")?;
+                let z = d.zones.get_mut(&id).ok_or("unknown zone")?;
+                for (k, v) in f {
+                    match k.as_str() {
+                        "name" => z.name = v.as_str().ok_or("name must be text")?.into(),
+                        "note_min" => {
+                            z.note_min = v.as_str().ok_or("note_min must be text")?.into()
+                        }
+                        "note_max" => {
+                            z.note_max = v.as_str().ok_or("note_max must be text")?.into()
+                        }
+                        "velocity_min" => {
+                            z.velocity_min = v.as_str().ok_or("velocity_min must be text")?.into()
+                        }
+                        "velocity_max" => {
+                            z.velocity_max = v.as_str().ok_or("velocity_max must be text")?.into()
+                        }
+                        "root" => z.root = v.as_str().ok_or("root must be text")?.into(),
+                        "region" => {
+                            let region = if v.is_null() {
+                                None
+                            } else {
+                                Some(RegionId(v.as_u64().ok_or("region must be integer|null")?))
+                            };
+                            if region.is_some_and(|id| !editor.song.regions.contains_key(&id)) {
+                                return Err("unknown region".into());
+                            }
+                            z.region = region;
+                            if let Some(r) = region.and_then(|id| editor.song.regions.get(&id)) {
+                                z.root = r.root_note.to_string();
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                self.draft = Some(d);
+            }
+            "apply" => self.apply(editor, false)?,
+            "fresh_copy" => self.apply(editor, true)?,
+            "inspect_region" => {
+                let id = self
+                    .draft
+                    .as_ref()
+                    .and_then(|d| d.selected)
+                    .and_then(|id| self.draft.as_ref()?.zones.get(&id))
+                    .and_then(|z| z.region)
+                    .ok_or("selected zone has no region")?;
+                let inst = self.instrument.ok_or("choose instrument")?;
+                self.inspect = Some((id, inst));
+                self.open = false;
+            }
+            _ => return Err(format!("unknown multisample action: {name}")),
+        }
+        Ok(self.agent_state(editor))
+    }
     pub fn reset_document(&mut self) {
         *self = Self::default();
     }
@@ -253,7 +455,10 @@ impl MultisampleUi {
         self.instrument = Some(instrument);
         self.map = Some(map);
         self.reload(editor);
-        self.notice = format!("Created I{} + map M{} without changing existing notes or mappings. Add regions before playback.", instrument.0, map.0);
+        self.notice = format!(
+            "Created I{} + map M{} without changing existing notes or mappings. Add regions before playback.",
+            instrument.0, map.0
+        );
         Ok(())
     }
     fn apply(&mut self, editor: &mut Editor, copy: bool) -> Result<(), String> {
@@ -273,9 +478,15 @@ impl MultisampleUi {
         self.map = Some(id);
         self.reload(editor);
         self.notice = if copy {
-            format!("Independent map M{} created from this draft; instrument assignment is unchanged. Regions remain shared.", id.0)
+            format!(
+                "Independent map M{} created from this draft; instrument assignment is unchanged. Regions remain shared.",
+                id.0
+            )
         } else {
-            format!("Map M{} applied atomically to all assigned instruments; ordinary note cells unchanged.", id.0)
+            format!(
+                "Map M{} applied atomically to all assigned instruments; ordinary note cells unchanged.",
+                id.0
+            )
         };
         Ok(())
     }
@@ -595,6 +806,19 @@ fn zone_editor(ui: &mut egui::Ui, editor: &Editor, draft: &mut Draft, writable: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_api_exposes_zone_draft_and_rejects_unknown_action_atomically() {
+        let (mut editor, ui) = fixture();
+        let mut ui = ui;
+        let before = editor.song.clone();
+        let state = ui.agent_state(&editor);
+        assert!(state["actions"]["patch_zone"].is_object());
+        assert!(
+            ui.agent_action(&mut editor, None, json!({"action":"not_an_action"}))
+                .is_err()
+        );
+        assert_eq!(editor.song, before);
+    }
     fn selection(e: &Editor) -> (usize, crate::song::TrackId, u32, u16, crate::editor::Field) {
         (e.occurrence, e.track, e.row, e.column, e.field)
     }
@@ -606,30 +830,24 @@ mod tests {
             ..Editor::default()
         };
         let mut song = editor.song.clone();
-        song.register_sample(
-            SampleId(1),
-            SampleAsset {
-                path: "unit-keyzones-no-io.wav".into(),
-                sha256: "0".repeat(64),
-                sample_rate: 48_000,
-                channels: 1,
-                frames: 9600,
-            },
-        )
+        song.register_sample(SampleId(1), SampleAsset {
+            path: "unit-keyzones-no-io.wav".into(),
+            sha256: "0".repeat(64),
+            sample_rate: 48_000,
+            channels: 1,
+            frames: 9600,
+        })
         .unwrap();
         for (id, start, root) in [(1, 0, 60), (2, 4800, 72)] {
-            song.upsert_region(
-                RegionId(id),
-                SampleRegion {
-                    name: format!("Region {id}"),
-                    sample: SampleId(1),
-                    start_frame: start,
-                    end_frame: start + 4800,
-                    root_note: root,
-                    amp_envelope: None,
-                    forward_loop: None,
-                },
-            )
+            song.upsert_region(RegionId(id), SampleRegion {
+                name: format!("Region {id}"),
+                sample: SampleId(1),
+                start_frame: start,
+                end_frame: start + 4800,
+                root_note: root,
+                amp_envelope: None,
+                forward_loop: None,
+            })
             .unwrap();
         }
         editor.apply_document_edit(song).unwrap();
@@ -640,30 +858,24 @@ mod tests {
             .set_keyzones(
                 map,
                 BTreeMap::from([
-                    (
-                        KeyZoneId(7),
-                        KeyZone {
-                            name: "Low".into(),
-                            note_min: 0,
-                            note_max: 63,
-                            velocity_min: 0,
-                            velocity_max: 127,
-                            region: RegionId(1),
-                            root_note: 60,
-                        },
-                    ),
-                    (
-                        KeyZoneId(19),
-                        KeyZone {
-                            name: "High".into(),
-                            note_min: 64,
-                            note_max: 127,
-                            velocity_min: 0,
-                            velocity_max: 127,
-                            region: RegionId(2),
-                            root_note: 72,
-                        },
-                    ),
+                    (KeyZoneId(7), KeyZone {
+                        name: "Low".into(),
+                        note_min: 0,
+                        note_max: 63,
+                        velocity_min: 0,
+                        velocity_max: 127,
+                        region: RegionId(1),
+                        root_note: 60,
+                    }),
+                    (KeyZoneId(19), KeyZone {
+                        name: "High".into(),
+                        note_min: 64,
+                        note_max: 127,
+                        velocity_min: 0,
+                        velocity_max: 127,
+                        region: RegionId(2),
+                        root_note: 72,
+                    }),
                 ]),
             )
             .unwrap();
@@ -703,10 +915,11 @@ mod tests {
             .get_mut(&KeyZoneId(7))
             .unwrap()
             .note_max = "65".into();
-        assert!(ui
-            .apply(&mut editor, false)
-            .unwrap_err()
-            .contains("overlap"));
+        assert!(
+            ui.apply(&mut editor, false)
+                .unwrap_err()
+                .contains("overlap")
+        );
         assert_eq!(editor.song, before);
         assert_eq!(editor.revision(), revision);
         assert_eq!(
@@ -865,23 +1078,15 @@ mod tests {
         point: egui::Pos2,
     ) {
         for pressed in [true, false] {
-            frame(
-                ctx,
-                state,
-                editor,
-                width,
-                height,
-                enabled,
-                vec![
-                    egui::Event::PointerMoved(point),
-                    egui::Event::PointerButton {
-                        pos: point,
-                        button: egui::PointerButton::Primary,
-                        pressed,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-            );
+            frame(ctx, state, editor, width, height, enabled, vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
         }
     }
     #[test]
@@ -942,18 +1147,15 @@ mod tests {
             let mut song = editor.song.clone();
             let zones = (0..128u8)
                 .map(|note| {
-                    (
-                        KeyZoneId(u64::from(note) + 1),
-                        KeyZone {
-                            name: format!("Zone {note}"),
-                            note_min: note,
-                            note_max: note,
-                            velocity_min: 0,
-                            velocity_max: 127,
-                            region: RegionId(1),
-                            root_note: 60,
-                        },
-                    )
+                    (KeyZoneId(u64::from(note) + 1), KeyZone {
+                        name: format!("Zone {note}"),
+                        note_min: note,
+                        note_max: note,
+                        velocity_min: 0,
+                        velocity_max: 127,
+                        region: RegionId(1),
+                        root_note: 60,
+                    })
                 })
                 .collect();
             song.set_keyzones(MultisampleId(1), zones).unwrap();

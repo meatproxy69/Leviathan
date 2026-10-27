@@ -21,6 +21,7 @@ use crate::{
 };
 use eframe::egui::{self, Align2, Color32, FontId, Rect, RichText, Stroke};
 use phonic::AudioFileBuffer;
+use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -291,7 +292,907 @@ pub struct SampleUi {
     notice: String,
 }
 impl SampleUi {
-    #[cfg(any(test, feature = "ui-capture"))]
+    /// Machine-readable sampler state. Draft text is returned verbatim, including
+    /// invalid values, so an agent can repair it without observing rendered UI.
+    pub(crate) fn agent_state(&self, editor: &Editor) -> Value {
+        let preview = self.preview.as_ref();
+        let compile = self.compile_config.as_ref();
+        let source_list = editor
+            .song
+            .samples
+            .iter()
+            .map(|(id, a)| json!({"id":id,"asset":a}))
+            .collect::<Vec<_>>();
+        let region_list = editor
+            .song
+            .regions
+            .iter()
+            .filter(|(_, r)| preview.and_then(|p| p.source) == Some(r.sample))
+            .map(|(id, r)| json!({"id":id,"region":r}))
+            .collect::<Vec<_>>();
+        let region_draft = json!({"active":self.draft_active,"selected":self.selected.as_ref().map(|(id,_)|id),"name":self.draft.name,"start":self.draft.start,"end":self.draft.end,"root":self.draft.root,"playback":{"envelope":self.draft.playback.envelope,"attack":self.draft.playback.attack,"decay":self.draft.playback.decay,"sustain":self.draft.playback.sustain,"release":self.draft.playback.release,"looping":self.draft.playback.looping,"loop_start":self.draft.playback.loop_start,"loop_end":self.draft.playback.loop_end},"map_on_apply":self.map_on_apply,"instrument":self.instrument});
+        let marker_state = json!({"selected":self.marker_selected.as_ref().map(|(id,_)|id),"draft":self.marker_draft,"index":self.marker_index,"frame":self.marker_frame,"saved":self.markers_saved()});
+        let break_state = json!({"config":compile,"preview":self.compiled.as_ref().map(|p|json!({"revision":p.revision,"id":p.plan.id(),"summary":p.plan.summary()})),"commit_authorized":self.commit_authorized,"verified_waiting":self.verified.is_some(),"committed":self.committed,"cleanup":self.cleanup});
+        let analysis_state = json!({"config":self.config,"ready":self.analysis.is_some(),"result":self.analysis,"suggestions_visible":self.show_suggestions,"experimental_enabled":self.experimental.enabled,"experimental_config":self.experimental.config,"experimental_view":{"show_peaks":self.experimental.show_peaks,"show_attacks":self.experimental.show_attacks,"show_curves":self.experimental.show_curves,"curve_metric":self.experimental.curve_metric,"curve_points":self.experimental.curve_points,"selected":self.experimental.selected},"experimental_cache_ready":self.experimental.cache.is_some(),"experimental_ready":self.experimental.result.as_ref().map(|r|json!({"revision":r.revision,"reused":r.reused,"analysis":r.result.analysis,"binding":r.result.binding,"suggestions":r.result.analysis.suggestions}))});
+        let top_schema = json!({"set_path":{"path":"string"},"load_preview":{"path":"optional string"},"reload_source":{"id":"u64"},"select_source":{"id":"u64"},"set_view":{"view":"regions|break|sequence|tempo|catalog"},"select_region":{"id":"u64"},"patch_region_draft":{"fields":"name:string,start:u64,end:u64,root:u64,playback:{envelope:bool,attack/decay/sustain/release/loop_start/loop_end:string,looping:bool}","map_on_apply":"optional bool","instrument":"optional u64"},"select_marker_set":{"id":"u64"},"patch_marker_draft":{"fields":"name:string,source_bpm:number|null,markers:u64[],locked_frames:u64[]"},"select_marker_boundary":{"index":"u64"},"marker_insert":{"frame":"u64"},"marker_move":{"frame":"u64"},"break_patch":{"fields":"name,target_bpm,cycles,timing,roll,tail,minimum_slice_frames,root_note,pad_tails"},"analysis_config":{"config":"AnalysisConfig"},"suggestions_visibility":{"visible":"bool"},"suggestion_accept":{"index":"u64"},"experimental_config":{"config":"onset-v2 Config"},"experimental_enable":{"enabled":"bool"},"experimental_view":{"fields":"show_peaks/show_attacks/show_curves:bool,curve_metric:0..2,curve_points:16|64|256|1024"},"experimental_analyze":{"reuse_cache":"optional bool"},"experimental_select":{"index":"u64"},"experimental_reject":{"frame":"u64"},"experimental_accept":{"index":"u64"}});
+        let nested_schema = json!({"tempo":{"operation":"patch|analyze|select_candidate|set_target|set_pulse_page|apply_bpm|commit_verified|cancel","patch.fields":"mode,marker,start_index,end_index,include_start,start_frame,end_frame,basis,min_bpm,max_bpm","select_candidate.index":"u64","set_target.id":"u64","set_pulse_page.page":"u64"},"catalog":{"operation":"select|select_all|clear_selection|focus|analyze|set_role|save_role|clear_role|clear_descriptors|store|commit_verified|cancel","select.id":"u64; selected?:bool","focus.id":"u64","set_role.id":"u64; label:RoleLabel"},"marker_bank":{"operation":"open|patch|all_intervals|clear_intervals|preview|create|commit_verified|open_kit|cancel","open.marker_set/source":"u64","patch.fields":"name:string,intervals:string"}});
+        let action_schema = json!({"envelope":"Top-level {action:string,...}; nested calls use {action:'tempo'|'catalog'|'marker_bank',operation:string,...}.","top_level":top_schema,"nested":nested_schema});
+        let actions=json!(["state","poll","set_path(path)","load_preview(path)","reload_source(id)","select_source(id)","remove_source","set_view(regions|break|sequence|tempo|catalog)","new_region","select_region(id)","patch_region_draft(fields)","apply_region","remove_region","unmap_instrument","new_markers","select_marker_set(id)","patch_marker_draft(fields)","select_marker_boundary(index)","marker_insert(frame)","marker_move(frame)","marker_remove","marker_toggle_lock","save_markers","break_patch(fields)","break_preview","break_commit","break_commit_verified","break_cleanup_preview","break_use_cleanup","analysis_config(config)","analyze","suggestions_visibility(visible)","suggestion_accept(index)","experimental_config(config)","experimental_enable(enabled)","experimental_view(fields)","experimental_analyze(reuse_cache)","experimental_select(index)","experimental_reject(frame)","experimental_accept(index)","experimental_accept_all_markers","tempo:{patch,analyze,select_candidate,set_target,set_pulse_page,apply_bpm,commit_verified,cancel}","catalog:{select,select_all,clear_selection,focus,analyze,set_role,save_role,clear_role,clear_descriptors,store,commit_verified,cancel}","marker_bank:{open,patch,all_intervals,clear_intervals,preview,create,commit_verified,open_kit,cancel}","cancel_commit"]);
+        json!({"component":"samples","path":self.path,"busy":self.busy(),"view":if self.tempo_view{"tempo"}else if self.features_view{"catalog"}else if self.workflow&&self.sequence_view{"sequence"}else if self.workflow{"break"}else{"regions"},"sequence_view":self.sequence_view,"source_choice":self.source_choice,"preview_source":preview.and_then(|p|p.source),"preview":preview.map(|p|json!({"asset":p.asset,"waveform":p.waveform})),"sources":source_list,"regions":region_list,"region_draft":region_draft,"markers":marker_state,"break":break_state,"analysis":analysis_state,"worker_phase":self.pending.as_ref().map(|p|match p.owner{WorkerOwner::General=>"general",WorkerOwner::Tempo=>"tempo",WorkerOwner::Catalog=>"catalog",WorkerOwner::MarkerBank=>"marker_bank"}),"tempo":self.capture_tempo_state(editor),"catalog":self.capture_catalog_state(editor),"marker_bank":self.capture_marker_bank_state(),"notice":self.notice,"error":self.error,"action_schema":action_schema,"actions":actions})
+    }
+
+    /// Dispatch a structured sampler operation. Every mutating operation below
+    /// uses the same validators and document transactions as the native controls.
+    pub(crate) fn agent_action(
+        &mut self,
+        editor: &mut Editor,
+        base: Option<&Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let obj = action.as_object().ok_or("action must be a JSON object")?;
+        let kind = obj
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("action.action must be a string")?;
+        let allowed: &[&str] = match kind {
+            "state"
+            | "poll"
+            | "remove_source"
+            | "new_region"
+            | "apply_region"
+            | "remove_region"
+            | "new_markers"
+            | "marker_remove"
+            | "marker_toggle_lock"
+            | "save_markers"
+            | "break_preview"
+            | "break_commit"
+            | "break_commit_verified"
+            | "break_cleanup_preview"
+            | "break_use_cleanup"
+            | "analyze"
+            | "experimental_accept_all_markers"
+            | "cancel_commit" => &["action"],
+            "set_path" | "load_preview" => &["action", "path"],
+            "reload_source" | "select_source" | "select_region" | "select_marker_set" => {
+                &["action", "id"]
+            }
+            "set_view" => &["action", "view"],
+            "patch_region_draft" => &["action", "fields", "map_on_apply", "instrument"],
+            "unmap_instrument" => &["action", "instrument"],
+            "patch_marker_draft" => &["action", "fields"],
+            "select_marker_boundary" => &["action", "index"],
+            "marker_insert" | "marker_move" => &["action", "frame"],
+            "marker_bank" => &["action", "operation", "marker_set", "source", "fields"],
+            "tempo" => &["action", "operation", "fields", "index", "id", "page"],
+            "catalog" => &["action", "operation", "fields", "id", "selected", "label"],
+            "break_patch" => &["action", "fields"],
+            "analysis_config" | "experimental_config" => &["action", "config"],
+            "suggestions_visibility" => &["action", "visible"],
+            "suggestion_accept" | "experimental_select" | "experimental_accept" => {
+                &["action", "index"]
+            }
+            "experimental_enable" => &["action", "enabled"],
+            "experimental_view" => &["action", "fields"],
+            "experimental_analyze" => &["action", "reuse_cache"],
+            "experimental_reject" => &["action", "frame"],
+            _ => &["action"],
+        };
+        ensure_only(obj, allowed)?;
+        if matches!(kind, "tempo" | "catalog" | "marker_bank") {
+            let op = obj
+                .get("operation")
+                .and_then(Value::as_str)
+                .ok_or("nested component action requires operation")?;
+            let nested: &[&str] = match (kind, op) {
+                ("tempo", "patch") => &["action", "operation", "fields"],
+                ("tempo", "select_candidate") => &["action", "operation", "index"],
+                ("tempo", "set_target") => &["action", "operation", "id"],
+                ("tempo", "set_pulse_page") => &["action", "operation", "page"],
+                ("tempo", "analyze" | "apply_bpm" | "commit_verified" | "cancel") => {
+                    &["action", "operation"]
+                }
+                ("catalog", "select") => &["action", "operation", "id", "selected"],
+                ("catalog", "focus" | "clear_role" | "clear_descriptors") => {
+                    &["action", "operation", "id"]
+                }
+                ("catalog", "set_role") => &["action", "operation", "id", "label"],
+                (
+                    "catalog",
+                    "select_all" | "clear_selection" | "analyze" | "save_role" | "store"
+                    | "commit_verified" | "cancel",
+                ) => &["action", "operation"],
+                ("marker_bank", "open") => &["action", "operation", "marker_set", "source"],
+                ("marker_bank", "patch") => &["action", "operation", "fields"],
+                (
+                    "marker_bank",
+                    "all_intervals" | "clear_intervals" | "preview" | "create" | "commit_verified"
+                    | "open_kit" | "cancel",
+                ) => &["action", "operation"],
+                _ => return Err(format!("unsupported {kind} operation: {op}")),
+            };
+            ensure_only(obj, nested)?;
+        }
+        self.sync(editor);
+        if matches!(
+            kind,
+            "break_patch" | "break_preview" | "break_cleanup_preview"
+        ) {
+            let asset = self
+                .preview
+                .as_ref()
+                .ok_or("load a source first")?
+                .asset
+                .clone();
+            self.ensure_compile_config(editor, &asset)?;
+        }
+        let ok = |value: Value| Ok(value);
+        match kind {
+            "state" => ok(self.agent_state(editor)),
+            "poll" => {
+                self.poll();
+                ok(self.agent_state(editor))
+            }
+            "set_path" => {
+                self.path = action
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .ok_or("path must be a string")?
+                    .to_owned();
+                ok(self.agent_state(editor))
+            }
+            "load_preview" => {
+                let path = action
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| self.path.clone());
+                if path.trim().is_empty() {
+                    return Err("path is empty".into());
+                };
+                self.path = path.clone();
+                let input = PathBuf::from(path.trim());
+                let path = if input.is_relative() {
+                    base.map_or(input.clone(), |b| b.join(&input))
+                } else {
+                    input
+                };
+                self.start(Request::Load {
+                    path,
+                    expected: None,
+                })?;
+                ok(json!({"accepted":true,"busy":self.busy()}))
+            }
+            "reload_source" => {
+                let id = action
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .ok_or("id must be an unsigned source id")?;
+                self.source_choice = Some(SampleId(id));
+                let asset = editor
+                    .song
+                    .samples
+                    .get(&SampleId(id))
+                    .ok_or("source does not exist")?
+                    .clone();
+                self.start(Request::Load {
+                    path: resolve_source(&asset, base),
+                    expected: Some((SampleId(id), asset)),
+                })?;
+                ok(json!({"accepted":true,"busy":true}))
+            }
+            "select_source" => {
+                let id = action
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .ok_or("id must be an unsigned source id")?;
+                let id = SampleId(id);
+                if !editor.song.samples.contains_key(&id) {
+                    return Err("source does not exist".into());
+                };
+                self.source_choice = Some(id);
+                self.workflow = false;
+                self.tempo_view = false;
+                self.features_view = false;
+                ok(self.agent_state(editor))
+            }
+            "remove_source" => {
+                let id = self.source_choice.ok_or("no source selected")?;
+                editor.remove_sample(id)?;
+                self.sync(editor);
+                ok(self.agent_state(editor))
+            }
+            "set_view" => {
+                match action
+                    .get("view")
+                    .and_then(Value::as_str)
+                    .ok_or("view must be string")?
+                {
+                    "regions" => {
+                        self.workflow = false;
+                        self.sequence_view = false;
+                        self.tempo_view = false;
+                        self.features_view = false
+                    }
+                    "break" => {
+                        self.workflow = true;
+                        self.sequence_view = false;
+                        self.tempo_view = false;
+                        self.features_view = false
+                    }
+                    "sequence" => {
+                        self.workflow = true;
+                        self.sequence_view = true;
+                        self.tempo_view = false;
+                        self.features_view = false
+                    }
+                    "tempo" => {
+                        self.tempo_view = true;
+                        self.features_view = false
+                    }
+                    "catalog" => {
+                        self.features_view = true;
+                        self.tempo_view = false
+                    }
+                    _ => {
+                        return Err(
+                            "view must be regions, break, sequence, tempo, or catalog".into()
+                        )
+                    }
+                };
+                ok(self.agent_state(editor))
+            }
+            "new_region" => {
+                let frames = self
+                    .preview
+                    .as_ref()
+                    .ok_or("load a source first")?
+                    .asset
+                    .frames;
+                self.selected = None;
+                self.draft_active = true;
+                self.draft = RegionDraft {
+                    name: format!(
+                        "Region {}",
+                        next_id(editor.song.regions.keys().map(|id| id.0))?
+                    ),
+                    start: 0,
+                    end: frames,
+                    root: 60,
+                    playback: PlaybackDraft::default(),
+                };
+                ok(self.agent_state(editor))
+            }
+            "select_region" => {
+                let id = RegionId(
+                    action
+                        .get("id")
+                        .and_then(Value::as_u64)
+                        .ok_or("id must be unsigned")?,
+                );
+                let region = editor
+                    .song
+                    .regions
+                    .get(&id)
+                    .ok_or("region does not exist")?
+                    .clone();
+                if self.preview.as_ref().and_then(|p| p.source) != Some(region.sample) {
+                    return Err("region belongs to another source; load that source first".into());
+                };
+                self.selected = Some((id, region.clone()));
+                self.draft = draft_from(&region);
+                self.draft_active = true;
+                ok(self.agent_state(editor))
+            }
+            "patch_region_draft" => {
+                let mut draft = self.draft.clone();
+                patch_region(
+                    &mut draft,
+                    action.get("fields").ok_or("fields object required")?,
+                )?;
+                let map_on_apply = action
+                    .get("map_on_apply")
+                    .map(|v| v.as_bool().ok_or("map_on_apply must be boolean"))
+                    .transpose()?
+                    .unwrap_or(self.map_on_apply);
+                let instrument = action
+                    .get("instrument")
+                    .map(|v| v.as_u64().ok_or("instrument must be unsigned"))
+                    .transpose()?
+                    .unwrap_or(self.instrument);
+                if !editor
+                    .song
+                    .instruments
+                    .contains_key(&InstrumentId(instrument))
+                {
+                    return Err("instrument does not exist".into());
+                };
+                self.draft = draft;
+                self.map_on_apply = map_on_apply;
+                self.instrument = instrument;
+                ok(self.agent_state(editor))
+            }
+            "apply_region" => {
+                self.apply(editor)?;
+                ok(self.agent_state(editor))
+            }
+            "remove_region" => {
+                let (id, original) = self
+                    .selected
+                    .clone()
+                    .ok_or("select a committed region first")?;
+                if editor.song.regions.get(&id) != Some(&original) {
+                    return Err("region changed; reselect".into());
+                };
+                editor.remove_region(id)?;
+                self.selected = None;
+                self.draft_active = false;
+                ok(self.agent_state(editor))
+            }
+            "unmap_instrument" => {
+                let instrument = InstrumentId(
+                    action
+                        .get("instrument")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(self.instrument),
+                );
+                editor.assign_region(instrument, None)?;
+                ok(self.agent_state(editor))
+            }
+            "new_markers" => {
+                self.new_markers(editor);
+                ok(self.agent_state(editor))
+            }
+            "select_marker_set" => {
+                let id = MarkerSetId(
+                    action
+                        .get("id")
+                        .and_then(Value::as_u64)
+                        .ok_or("id must be unsigned")?,
+                );
+                let set = editor
+                    .song
+                    .marker_sets
+                    .get(&id)
+                    .ok_or("marker set does not exist")?
+                    .clone();
+                if self.preview.as_ref().and_then(|p| p.source) != Some(set.sample) {
+                    return Err("load the marker set's source first".into());
+                };
+                self.marker_selected = Some((id, set.clone()));
+                self.marker_draft = Some(set);
+                self.marker_index = 0;
+                ok(self.agent_state(editor))
+            }
+            "patch_marker_draft" => {
+                let mut set = self
+                    .marker_draft
+                    .clone()
+                    .ok_or("create/select a marker draft first")?;
+                patch_marker(
+                    &mut set,
+                    action.get("fields").ok_or("fields object required")?,
+                )?;
+                self.marker_draft = Some(set);
+                ok(self.agent_state(editor))
+            }
+            "marker_insert" => {
+                let f = action
+                    .get("frame")
+                    .and_then(Value::as_u64)
+                    .ok_or("frame must be unsigned")?;
+                self.insert_marker(f)?;
+                ok(self.agent_state(editor))
+            }
+            "marker_move" => {
+                self.marker_frame = action
+                    .get("frame")
+                    .and_then(Value::as_u64)
+                    .ok_or("frame must be unsigned")?;
+                self.move_marker()?;
+                ok(self.agent_state(editor))
+            }
+            "select_marker_boundary" => {
+                let index = action
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .ok_or("index must be unsigned")? as usize;
+                let set = self
+                    .marker_draft
+                    .as_ref()
+                    .ok_or("create/select marker draft first")?;
+                let frame = *set
+                    .markers
+                    .get(index)
+                    .ok_or("boundary index outside marker draft")?;
+                self.marker_index = index;
+                self.marker_frame = frame;
+                ok(self.agent_state(editor))
+            }
+            "marker_remove" => {
+                self.remove_marker_draft()?;
+                ok(self.agent_state(editor))
+            }
+            "marker_toggle_lock" => {
+                self.toggle_marker_lock(editor)?;
+                ok(self.agent_state(editor))
+            }
+            "save_markers" => {
+                self.save_markers(editor)?;
+                ok(self.agent_state(editor))
+            }
+            "marker_bank" => {
+                let marker_set = self.marker_selected.as_ref().map(|(id, _)| *id);
+                let source = self
+                    .preview
+                    .as_ref()
+                    .and_then(|p| p.source)
+                    .filter(|s| self.source_choice == Some(*s));
+                let path = source
+                    .and_then(|id| editor.song.samples.get(&id))
+                    .map(|asset| resolve_source(asset, base))
+                    .unwrap_or_default();
+                let context = marker_bank_ui::Context {
+                    marker_set,
+                    source,
+                    markers_saved: self.markers_saved(),
+                    path,
+                    busy: self.busy(),
+                };
+                let operation = action
+                    .get("operation")
+                    .and_then(Value::as_str)
+                    .ok_or("marker_bank requires operation")?;
+                let mut nested = action.clone();
+                nested["action"] = Value::String(operation.into());
+                if let Some(request) = self.marker_bank.agent_action(&nested, editor, &context)? {
+                    self.start(Request::MarkerBank(Box::new(request)))?;
+                }
+                ok(self.agent_state(editor))
+            }
+            "tempo" => {
+                let preview = self.preview.as_ref().ok_or("load a source first")?;
+                let source = preview
+                    .source
+                    .ok_or("register a source by applying a region first")?;
+                let context = tempo_ui::Context {
+                    source,
+                    asset: &preview.asset,
+                    cache: self.experimental.cache.as_ref(),
+                    onset: &self.experimental.config,
+                    path: resolve_source(&preview.asset, base),
+                    busy: self.busy(),
+                };
+                if let Some(request) = self.tempo.agent_action(&action, editor, context)? {
+                    self.start(Request::Tempo(Box::new(request)))?;
+                }
+                ok(self.agent_state(editor))
+            }
+            "catalog" => {
+                let preview = self.preview.as_ref().ok_or("load a source first")?;
+                let source = preview
+                    .source
+                    .ok_or("register a source by applying a region first")?;
+                let context = slice_features_ui::Context {
+                    source,
+                    asset: &preview.asset,
+                    path: resolve_source(&preview.asset, base),
+                    cache: self.experimental.cache.as_ref(),
+                    busy: self.busy(),
+                };
+                let operation = action
+                    .get("operation")
+                    .and_then(Value::as_str)
+                    .ok_or("catalog operation required")?;
+                let mut nested = action.clone();
+                nested["action"] = Value::String(operation.into());
+                if let Some(request) = self.features.agent_action(&nested, editor, context)? {
+                    self.start(Request::Catalog(Box::new(request)))?;
+                }
+                ok(self.agent_state(editor))
+            }
+            "break_patch" => {
+                let mut config = self
+                    .compile_config
+                    .clone()
+                    .ok_or("select a saved marker set and source first")?;
+                let fields = action
+                    .get("fields")
+                    .and_then(Value::as_object)
+                    .ok_or("fields must be an object")?;
+                for (k, v) in fields {
+                    match k.as_str() {
+                        "name" => config.name = v.as_str().ok_or("name must be string")?.to_owned(),
+                        "target_bpm" => {
+                            config.target_bpm = v.as_f64().ok_or("target_bpm must be number")?
+                        }
+                        "cycles" => {
+                            config.cycles =
+                                u16::try_from(v.as_u64().ok_or("cycles must be unsigned")?)
+                                    .map_err(|_| "cycles outside u16")?
+                        }
+                        "timing" => {
+                            config.timing =
+                                serde_json::from_value(v.clone()).map_err(|e| e.to_string())?
+                        }
+                        "roll" => {
+                            config.roll =
+                                serde_json::from_value(v.clone()).map_err(|e| e.to_string())?
+                        }
+                        "tail" => {
+                            config.tail =
+                                serde_json::from_value(v.clone()).map_err(|e| e.to_string())?
+                        }
+                        "minimum_slice_frames" => {
+                            config.minimum_slice_frames =
+                                v.as_u64().ok_or("minimum_slice_frames must be unsigned")?
+                        }
+                        "root_note" => {
+                            config.root_note =
+                                u8::try_from(v.as_u64().ok_or("root_note must be unsigned")?)
+                                    .map_err(|_| "root_note outside u8")?
+                        }
+                        "pad_tails" => {
+                            config.pad_tails = v.as_bool().ok_or("pad_tails must be boolean")?
+                        }
+                        _ => return Err(format!("unknown break config field: {k}")),
+                    }
+                }
+                self.compile_config = Some(config);
+                self.compiled = None;
+                self.committed = None;
+                self.commit_authorized = false;
+                ok(self.agent_state(editor))
+            }
+            "break_preview" => {
+                let config = self
+                    .compile_config
+                    .clone()
+                    .ok_or("select a saved marker set first")?;
+                if !self.markers_saved() {
+                    return Err("save marker draft before sequence preview".into());
+                };
+                if self.busy() {
+                    return Err("source task is already running".into());
+                };
+                self.start(Request::Compile {
+                    song: Box::new(editor.song.clone()),
+                    revision: editor.revision(),
+                    config,
+                    base: base.map(Path::to_path_buf),
+                })?;
+                self.compiled = None;
+                self.committed = None;
+                ok(json!({"accepted":true,"busy":true}))
+            }
+            "break_commit" => {
+                if !editor.edit_mode {
+                    return Err("sequence commit requires edit mode".into());
+                }
+                let prepared = self.compiled.clone().ok_or("preview the sequence first")?;
+                if !self.prepared_current(editor, &prepared) {
+                    return Err("sequence preview is stale; preview again".into());
+                };
+                self.workflow = true;
+                self.sequence_view = true;
+                self.tempo_view = false;
+                self.features_view = false;
+                self.start(Request::Verify(prepared))?;
+                self.commit_authorized = true;
+                ok(json!({"accepted":true,"busy":true}))
+            }
+            "break_commit_verified" => {
+                self.finish_verified_commit(editor, true);
+                ok(self.agent_state(editor))
+            }
+            "break_cleanup_preview" => {
+                let asset = &self.preview.as_ref().ok_or("load a source first")?.asset;
+                let markers = &self
+                    .marker_draft
+                    .as_ref()
+                    .ok_or("create a marker draft first")?
+                    .markers;
+                let min = self
+                    .compile_config
+                    .as_ref()
+                    .ok_or("compile config unavailable")?
+                    .minimum_slice_frames;
+                self.cleanup = Some((
+                    markers.clone(),
+                    break_compiler::suggest_marker_cleanup(asset, markers, min)?,
+                ));
+                ok(self.agent_state(editor))
+            }
+            "break_use_cleanup" => {
+                let (original, cleanup) = self.cleanup.clone().ok_or("review cleanup first")?;
+                let set = self.marker_draft.as_mut().ok_or("marker draft missing")?;
+                if set.markers != original {
+                    return Err("cleanup is stale".into());
+                };
+                if !set
+                    .locked_frames
+                    .iter()
+                    .all(|f| cleanup.markers.contains(f))
+                {
+                    return Err("cleanup would remove locked boundaries".into());
+                };
+                set.markers = cleanup.markers;
+                self.marker_index = 0;
+                self.sequence_view = false;
+                self.notice =
+                    "Cleanup copied to marker draft only; save markers before preview.".into();
+                ok(self.agent_state(editor))
+            }
+            "analyze" => {
+                let preview = self.preview.as_ref().ok_or("load a source first")?;
+                if self.busy() {
+                    return Err("source task is already running".into());
+                };
+                self.start(Request::Analyze {
+                    asset: preview.asset.clone(),
+                    buffer: Arc::clone(&preview.buffer),
+                    config: self.config.clone(),
+                })?;
+                ok(json!({"accepted":true,"busy":true}))
+            }
+            "experimental_config" => {
+                self.experimental.config = serde_json::from_value(
+                    action
+                        .get("config")
+                        .cloned()
+                        .ok_or("config object required")?,
+                )
+                .map_err(|e| e.to_string())?;
+                self.experimental.clear_source();
+                self.tempo.invalidate_cached();
+                ok(self.agent_state(editor))
+            }
+            "experimental_enable" => {
+                self.experimental.enabled = action
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .ok_or("enabled must be boolean")?;
+                ok(self.agent_state(editor))
+            }
+            "experimental_view" => {
+                let fields = action
+                    .get("fields")
+                    .and_then(Value::as_object)
+                    .ok_or("fields must be object")?;
+                let mut view = (
+                    self.experimental.show_peaks,
+                    self.experimental.show_attacks,
+                    self.experimental.show_curves,
+                    self.experimental.curve_metric,
+                    self.experimental.curve_points,
+                );
+                for (k, v) in fields {
+                    match k.as_str() {
+                        "show_peaks" => view.0 = v.as_bool().ok_or("show_peaks must be boolean")?,
+                        "show_attacks" => {
+                            view.1 = v.as_bool().ok_or("show_attacks must be boolean")?
+                        }
+                        "show_curves" => {
+                            view.2 = v.as_bool().ok_or("show_curves must be boolean")?
+                        }
+                        "curve_metric" => {
+                            view.3 =
+                                u8::try_from(v.as_u64().ok_or("curve_metric must be unsigned")?)
+                                    .map_err(|_| "curve_metric outside u8")?;
+                            if view.3 > 2 {
+                                return Err("curve_metric must be 0, 1 or 2".into());
+                            }
+                        }
+                        "curve_points" => {
+                            let n = v.as_u64().ok_or("curve_points must be unsigned")? as usize;
+                            if ![16, 64, 256, 1024].contains(&n) {
+                                return Err("curve_points must be one of 16, 64, 256, 1024".into());
+                            };
+                            view.4 = n
+                        }
+                        _ => return Err(format!("unknown experimental view field: {k}")),
+                    }
+                }
+                self.experimental.show_peaks = view.0;
+                self.experimental.show_attacks = view.1;
+                self.experimental.show_curves = view.2;
+                self.experimental.curve_metric = view.3;
+                self.experimental.curve_points = view.4;
+                ok(self.agent_state(editor))
+            }
+            "experimental_analyze" => {
+                let reuse = action
+                    .get("reuse_cache")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.start_experimental(editor, base, reuse)?;
+                ok(json!({"accepted":true,"busy":true}))
+            }
+            "experimental_select" => {
+                let i = action
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .ok_or("index must be unsigned")? as usize;
+                let result = self
+                    .experimental
+                    .result
+                    .as_ref()
+                    .ok_or("run experimental analysis first")?;
+                if i >= result.result.analysis.suggestions.len() {
+                    return Err("suggestion index outside current result".into());
+                };
+                self.experimental.selected = i;
+                ok(self.agent_state(editor))
+            }
+            "experimental_reject" => {
+                let frame = action
+                    .get("frame")
+                    .and_then(Value::as_u64)
+                    .ok_or("frame must be unsigned")?;
+                if !self.experimental.result.as_ref().is_some_and(|r| {
+                    self.experimental_current(editor, r)
+                        && r.result
+                            .analysis
+                            .suggestions
+                            .iter()
+                            .any(|s| s.attack_frame == frame)
+                }) {
+                    return Err("suggestion missing or stale".into());
+                };
+                self.rejected_suggestions.insert(frame);
+                ok(self.agent_state(editor))
+            }
+            "experimental_accept" => {
+                let index = action
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .ok_or("index must be unsigned")? as usize;
+                let prepared = self
+                    .experimental
+                    .result
+                    .clone()
+                    .ok_or("run experimental analysis first")?;
+                if self.busy() || !editor.edit_mode || !self.experimental_current(editor, &prepared)
+                {
+                    return Err("suggestion acceptance requires an idle worker, edit mode and current analysis".into());
+                };
+                let onset = prepared
+                    .result
+                    .analysis
+                    .suggestions
+                    .get(index)
+                    .ok_or("suggestion index outside current result")?;
+                let frame = onset.attack_frame;
+                if self.workflow {
+                    self.insert_marker(frame)?
+                } else {
+                    self.selected = None;
+                    self.draft_active = true;
+                    self.draft = RegionDraft {
+                        name: format!("V2 boundary {}", index + 1),
+                        start: frame,
+                        end: prepared
+                            .result
+                            .analysis
+                            .suggestions
+                            .get(index + 1)
+                            .map_or(prepared.asset.frames, |n| n.attack_frame),
+                        root: self.draft.root,
+                        playback: PlaybackDraft::default(),
+                    };
+                    self.notice =
+                        "Experimental boundary copied into a new region draft; review before Apply."
+                            .into()
+                };
+                ok(self.agent_state(editor))
+            }
+            "experimental_accept_all_markers" => {
+                if !self.workflow {
+                    return Err(
+                        "switch to break workflow before accepting marker boundaries".into(),
+                    );
+                };
+                let prepared = self
+                    .experimental
+                    .result
+                    .as_ref()
+                    .ok_or("run experimental analysis first")?;
+                if self.busy() || !self.experimental_current(editor, prepared) {
+                    return Err("analysis is stale or source worker is busy".into());
+                };
+                let set = self
+                    .marker_draft
+                    .as_mut()
+                    .ok_or("create marker draft first")?;
+                let mut frames = set.markers.clone();
+                frames.extend(
+                    prepared
+                        .result
+                        .analysis
+                        .suggestions
+                        .iter()
+                        .filter(|s| !self.rejected_suggestions.contains(&s.attack_frame))
+                        .map(|s| s.attack_frame),
+                );
+                frames.sort_unstable();
+                frames.dedup();
+                if frames.len() > 257 {
+                    return Err("at most 257 boundaries; proposals were not truncated".into());
+                };
+                set.markers = frames;
+                ok(self.agent_state(editor))
+            }
+            "analysis_config" => {
+                let config: AnalysisConfig = serde_json::from_value(
+                    action
+                        .get("config")
+                        .cloned()
+                        .ok_or("config object required")?,
+                )
+                .map_err(|e| e.to_string())?;
+                self.config = config;
+                self.analysis = None;
+                ok(self.agent_state(editor))
+            }
+            "suggestions_visibility" => {
+                self.show_suggestions = action
+                    .get("visible")
+                    .and_then(Value::as_bool)
+                    .ok_or("visible must be boolean")?;
+                ok(self.agent_state(editor))
+            }
+            "suggestion_accept" => {
+                let index = action
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .ok_or("index must be unsigned")? as usize;
+                if self.busy() || !editor.edit_mode {
+                    return Err(
+                        "suggestion acceptance requires idle source worker and edit mode".into(),
+                    );
+                };
+                let (start, end) = {
+                    let analysis = self
+                        .analysis
+                        .as_ref()
+                        .ok_or("run transient suggestions first")?;
+                    let current = analysis
+                        .suggestions
+                        .get(index)
+                        .ok_or("suggestion index outside current analysis")?;
+                    let end = analysis
+                        .suggestions
+                        .get(index + 1)
+                        .map(|next| next.frame)
+                        .unwrap_or(
+                            self.preview
+                                .as_ref()
+                                .ok_or("source preview missing")?
+                                .asset
+                                .frames,
+                        );
+                    (current.frame, end)
+                };
+                self.selected = None;
+                self.draft_active = true;
+                self.draft = RegionDraft {
+                    name: format!("Onset {}", index + 1),
+                    start,
+                    end,
+                    root: self.draft.root,
+                    playback: PlaybackDraft::default(),
+                };
+                self.notice =
+                    "Transient proposal copied to a new region draft; review before Apply.".into();
+                ok(self.agent_state(editor))
+            }
+            "cancel_commit" => {
+                self.cancel_commit();
+                ok(self.agent_state(editor))
+            }
+            _ => Err(format!("unsupported samples action: {kind}")),
+        }
+    }
     pub(crate) fn capture_marker_bank_state(&self) -> serde_json::Value {
         let mut state = self.marker_bank.capture_state();
         state["source_busy"] = self.busy().into();
@@ -309,7 +1210,6 @@ impl SampleUi {
             .filter(|prepared| self.experimental_current(editor, prepared))
             .map(|prepared| &prepared.result)
     }
-    #[cfg(any(test, feature = "ui-capture"))]
     pub(crate) fn capture_tempo_state(&self, editor: &Editor) -> serde_json::Value {
         let mut state = self.tempo.capture_state(
             editor,
@@ -332,7 +1232,6 @@ impl SampleUi {
         state["onset_config"] = serde_json::to_value(&self.experimental.config).unwrap();
         state
     }
-    #[cfg(any(test, feature = "ui-capture"))]
     pub(crate) fn capture_catalog_state(&self, editor: &Editor) -> serde_json::Value {
         let source = if self.features_view {
             self.source_choice
@@ -1292,17 +2191,15 @@ impl SampleUi {
             Err(error) => self.error = Some(error),
         }
     }
-    fn sequence_controls(
+    fn ensure_compile_config(
         &mut self,
-        ui: &mut egui::Ui,
-        editor: &mut Editor,
+        editor: &Editor,
         asset: &SampleAsset,
-        base: Option<&Path>,
-    ) {
-        let Some((id, source)) = self.marker_selected.clone() else {
-            ui.label("Save an accepted marker set in Markers first. A preview never silently accepts suggestions or registers source metadata.");
-            return;
-        };
+    ) -> Result<(), String> {
+        let (id, source) = self
+            .marker_selected
+            .clone()
+            .ok_or("save an accepted marker set in Markers first")?;
         if self
             .compile_config
             .as_ref()
@@ -1324,6 +2221,26 @@ impl SampleUi {
             self.committed = None;
             self.cleanup = None;
         }
+        if editor.song.marker_sets.get(&id) != Some(&source) {
+            return Err("selected marker set changed; reselect before sequence work".into());
+        };
+        Ok(())
+    }
+    fn sequence_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        editor: &mut Editor,
+        asset: &SampleAsset,
+        base: Option<&Path>,
+    ) {
+        let Some((id, source)) = self.marker_selected.clone() else {
+            ui.label("Save an accepted marker set in Markers first. A preview never silently accepts suggestions or registers source metadata.");
+            return;
+        };
+        if let Err(error) = self.ensure_compile_config(editor, asset) {
+            self.error = Some(error);
+            return;
+        };
         let saved = self.markers_saved();
         let writable = ui.is_enabled() && editor.edit_mode && !self.busy();
         ui.label(
@@ -2450,6 +3367,91 @@ impl SampleUi {
         });
     }
 }
+
+fn ensure_only(object: &serde_json::Map<String, Value>, allowed: &[&str]) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        Err(format!("unknown action field: {key}"))
+    } else {
+        Ok(())
+    }
+}
+fn patch_region(draft: &mut RegionDraft, fields: &Value) -> Result<(), String> {
+    let fields = fields.as_object().ok_or("fields must be an object")?;
+    for (key, value) in fields {
+        match key.as_str() {
+            "name" => draft.name = value.as_str().ok_or("name must be string")?.to_owned(),
+            "start" => draft.start = value.as_u64().ok_or("start must be unsigned")?,
+            "end" => draft.end = value.as_u64().ok_or("end must be unsigned")?,
+            "root" => {
+                draft.root = u8::try_from(value.as_u64().ok_or("root must be unsigned")?)
+                    .map_err(|_| "root outside 0..255")?
+            }
+            "playback" => {
+                let p = value.as_object().ok_or("playback must be an object")?;
+                for (k, v) in p {
+                    match k.as_str() {
+                        "envelope" => {
+                            draft.playback.envelope =
+                                v.as_bool().ok_or("envelope must be boolean")?
+                        }
+                        "attack" => {
+                            draft.playback.attack = v.as_str().ok_or("attack must be text")?.into()
+                        }
+                        "decay" => {
+                            draft.playback.decay = v.as_str().ok_or("decay must be text")?.into()
+                        }
+                        "sustain" => {
+                            draft.playback.sustain =
+                                v.as_str().ok_or("sustain must be text")?.into()
+                        }
+                        "release" => {
+                            draft.playback.release =
+                                v.as_str().ok_or("release must be text")?.into()
+                        }
+                        "looping" => {
+                            draft.playback.looping = v.as_bool().ok_or("looping must be boolean")?
+                        }
+                        "loop_start" => {
+                            draft.playback.loop_start =
+                                v.as_str().ok_or("loop_start must be text")?.into()
+                        }
+                        "loop_end" => {
+                            draft.playback.loop_end =
+                                v.as_str().ok_or("loop_end must be text")?.into()
+                        }
+                        _ => return Err(format!("unknown playback field: {k}")),
+                    }
+                }
+            }
+            _ => return Err(format!("unknown region draft field: {key}")),
+        }
+    }
+    Ok(())
+}
+fn patch_marker(set: &mut MarkerSet, fields: &Value) -> Result<(), String> {
+    let fields = fields.as_object().ok_or("fields must be an object")?;
+    for (key, value) in fields {
+        match key.as_str() {
+            "name" => set.name = value.as_str().ok_or("name must be string")?.into(),
+            "source_bpm" => {
+                set.source_bpm = if value.is_null() {
+                    None
+                } else {
+                    Some(value.as_f64().ok_or("source_bpm must be number or null")?)
+                }
+            }
+            "markers" => {
+                set.markers = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?
+            }
+            "locked_frames" => {
+                set.locked_frames =
+                    serde_json::from_value(value.clone()).map_err(|e| e.to_string())?
+            }
+            _ => return Err(format!("unknown marker field: {key}")),
+        }
+    }
+    Ok(())
+}
 fn novelty_curves(
     ui: &mut egui::Ui,
     cache: &CachedSource,
@@ -2969,6 +3971,100 @@ mod tests {
         disabled.looping = false;
         disabled.attack = "invalid unused draft".into();
         assert_eq!(disabled.parse().unwrap(), (None, None));
+    }
+    #[test]
+    fn agent_sampler_draft_is_exact_and_apply_uses_existing_transaction() {
+        let fixture = fixture();
+        let mut sample = loaded(&fixture.0);
+        let mut editor = Editor {
+            edit_mode: true,
+            ..Default::default()
+        };
+        let before_song = editor.song.clone();
+        let before_revision = editor.revision();
+        sample.agent_action(&mut editor, None, json!({"action":"patch_region_draft","fields":{"name":"Agent slice","start":120,"end":900,"root":48,"playback":{"envelope":true,"attack":"not-a-number"}},"map_on_apply":false})).unwrap();
+        assert_eq!(
+            sample.agent_state(&editor)["region_draft"]["playback"]["attack"],
+            "not-a-number"
+        );
+        assert!(sample
+            .agent_action(&mut editor, None, json!({"action":"apply_region"}))
+            .is_err());
+        assert!(editor.song.regions.is_empty());
+        let before = sample.draft.clone();
+        assert!(sample
+            .agent_action(
+                &mut editor,
+                None,
+                json!({"action":"patch_region_draft","fields":{"start":321,"unexpected":true}})
+            )
+            .is_err());
+        assert_eq!(sample.draft, before, "an invalid typed patch is atomic");
+        assert!(sample.agent_action(&mut editor,None,json!({"action":"patch_region_draft","fields":{"name":"must not stick"},"map_on_apply":"invalid"})).is_err());
+        assert_eq!(
+            sample.draft, before,
+            "an invalid optional flag must not install draft changes"
+        );
+        sample.agent_action(&mut editor,None,json!({"action":"patch_region_draft","fields":{"playback":{"envelope":false,"attack":"0"}}})).unwrap();
+        sample
+            .agent_action(&mut editor, None, json!({"action":"apply_region"}))
+            .unwrap();
+        assert_eq!(editor.song.regions[&RegionId(1)].name, "Agent slice");
+        assert_eq!(
+            (
+                editor.song.regions[&RegionId(1)].start_frame,
+                editor.song.regions[&RegionId(1)].end_frame
+            ),
+            (120, 900)
+        );
+        assert_eq!(editor.revision(), before_revision + 1);
+        editor.undo();
+        assert_eq!(editor.song, before_song);
+    }
+    #[test]
+    fn agent_load_completion_after_document_reset_is_discarded() {
+        let fixture = fixture();
+        let mut sample = SampleUi::default();
+        let mut editor = Editor::default();
+        sample
+            .agent_action(
+                &mut editor,
+                None,
+                json!({"action":"load_preview","path":fixture.0.display().to_string()}),
+            )
+            .unwrap();
+        assert_eq!(sample.agent_state(&editor)["worker_phase"], "general");
+        sample.reset_document();
+        settle(&mut sample);
+        assert!(sample.preview.is_none());
+        assert_eq!(sample.epoch, 1);
+    }
+    #[test]
+    fn agent_break_preview_initializes_without_rendering_sequence_controls() {
+        let fixture = fixture();
+        let mut sample = loaded(&fixture.0);
+        let mut editor = Editor {
+            edit_mode: true,
+            ..Default::default()
+        };
+        sample
+            .agent_action(
+                &mut editor,
+                None,
+                json!({"action":"patch_marker_draft","fields":{"source_bpm":120.0}}),
+            )
+            .unwrap();
+        sample
+            .agent_action(&mut editor, None, json!({"action":"save_markers"}))
+            .unwrap();
+        assert!(sample.compile_config.is_none());
+        sample.agent_action(&mut editor,None,json!({"action":"break_patch","fields":{"name":"Agent break","target_bpm":120.0,"cycles":1,"minimum_slice_frames":1}})).unwrap();
+        assert_eq!(sample.compile_config.as_ref().unwrap().name, "Agent break");
+        sample
+            .agent_action(&mut editor, None, json!({"action":"break_preview"}))
+            .unwrap();
+        settle(&mut sample);
+        assert!(sample.compiled.is_some(), "{:?}", sample.error);
     }
     #[test]
     fn combined_region_playback_apply_is_one_undo_preserves_options_and_rejects_invalid_shrink() {

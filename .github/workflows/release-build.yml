@@ -60,32 +60,33 @@ jobs:
           --bin render_song
           --bin song_demo
           --bin musical_demo
+          --bin leviathan_agent
 
-      - name: Stage Windows binaries and license documents
+      - name: Stage Windows binaries and release documents
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $stage = "dist/Leviathan-windows-${{ github.sha }}"
           New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          foreach ($binary in @('leviathan.exe', 'render_song.exe', 'song_demo.exe', 'musical_demo.exe')) {
+          foreach ($binary in @('leviathan.exe', 'render_song.exe', 'song_demo.exe', 'musical_demo.exe', 'leviathan_agent.exe')) {
             New-Item -ItemType Directory -Force -Path "$stage/bin" | Out-Null
             Copy-Item "target/release/$binary" "$stage/bin"
           }
           Copy-Item README.md, RELEASE-NOTES.md, LICENSE, THIRD-PARTY-NOTICES.md, DEPENDENCIES.tsv $stage
-          Copy-Item -Recurse licenses, docs $stage
+          Copy-Item -Recurse docs $stage
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/leviathan-v0.1.0-alpha.2-windows-x86_64.zip"
 
-      - name: Stage Linux binaries and license documents
+      - name: Stage Linux binaries and release documents
         if: runner.os == 'Linux'
         shell: bash
         run: |
           stage="dist/Leviathan-linux-${GITHUB_SHA}"
           mkdir -p "$stage/bin"
-          cp target/release/leviathan target/release/render_song target/release/song_demo target/release/musical_demo "$stage/bin/"
+          cp target/release/leviathan target/release/render_song target/release/song_demo target/release/musical_demo target/release/leviathan_agent "$stage/bin/"
           printf '#!/bin/sh\nexec "$(dirname "$0")/bin/leviathan" "$@"\n' > "$stage/run-leviathan.sh"
           chmod +x "$stage/run-leviathan.sh"
           cp README.md RELEASE-NOTES.md LICENSE THIRD-PARTY-NOTICES.md DEPENDENCIES.tsv "$stage/"
-          cp -R licenses docs "$stage/"
+          cp -R docs "$stage/"
           tar -C "$stage" -czf dist/leviathan-v0.1.0-alpha.2-linux-x86_64.tar.gz .
 
       - name: Upload Windows build artifact

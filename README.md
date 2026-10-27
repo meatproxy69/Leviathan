@@ -36,7 +36,7 @@ Start with 24 tracks and 24 instruments, then add more as needed.
 - **Groove and generation:** Preview groove, transformations, and seeded patterns before committing them as editable notes.
 - **Mix and meters:** Control track gain, balance, mute, and solo, with sample peak meters.
 - **Save and export:** Save projects, use undo/redo for edits, and render WAV audio with an event manifest.
-- **Agent-friendly workflow:** Use the native editor or command-line tools; an optional headless MCP interface is also available.
+- **Direct agent control:** Inspect and operate the running editor, sampler, break tools, drafts, and transport through structured JSON commands. No MCP required.
 
 <details>
 <summary><strong>See arrangement and generation screenshots</strong></summary>
@@ -117,26 +117,31 @@ No personal or commercial sample library is downloaded or distributed.
 
 ## Agent-first: no MCP required
 
-LEVIATHAN is **agent-first**: local coding agents can work with saved
-`.leviathan.json` projects and invoke the included command-line tools directly.
-**No MCP server, MCP plugin, or MCP configuration is needed to use LEVIATHAN.**
-The native editor works on the same project files.
+LEVIATHAN exposes its Rust actions and editor state directly. Start the native
+editor with `--agent-stdio --workspace-root DIRECTORY` and exchange newline-delimited
+JSON through its stdin/stdout. The agent works on the **same open document,
+selections, drafts, previews, and audio transport** as the person using the GUI.
+No MCP server, plugin, screenshots, or simulated clicks are needed.
 
-An agent can generate a reproducible example with `song_demo`, inspect and edit
-its project JSON, render it with `render_song`, and open it for human review with
-`leviathan --project`. Projects are validated on load; keep the sample references
-valid and render to a new output path. Seeded generation commits notes into cells,
-so playback does not rerun the generator.
+Send `{"command":"discover"}` to inspect the available commands and their
+argument schemas. The twelve component groups cover the tracker, sampler and
+break tools, pads, steps, multisamples, generation, transformations, groove,
+thinning, cell blocks, resampling, and mix/meters. Draft changes and commits are
+separate, with existing Edit Mode, stale-preview, and project-confirmation checks.
+
+For isolated work without a GUI, use `leviathan_agent --workspace-root DIRECTORY`.
+It exposes the 64 project/core operations using the same direct JSON protocol;
+desktop drafts and live audio belong to the native editor interface.
+See [agent control and examples](docs/AGENT-CONTROL.md).
 
 | Command in the extracted package | Purpose |
 | --- | --- |
 | `./bin/leviathan --help` | Editor launch options. |
 | `./bin/leviathan --project PROJECT.json` | Open a saved project. |
+| `./bin/leviathan --agent-stdio --workspace-root DIRECTORY` | Control the running editor through stdin/stdout. |
+| `./bin/leviathan_agent --workspace-root DIRECTORY` | Operate an isolated headless document through stdin/stdout. |
 | `./bin/render_song PROJECT.json NEW_OUTPUT.wav` | Render a project without modifying it. |
 | `./bin/song_demo NEW_DIRECTORY` | Create a synthetic example project and reference renders. |
-
-An optional headless MCP interface is also available in the source build; see
-[MCP.md](MCP.md). The editor and command-line workflow work without MCP.
 
 ## Make a first song
 
@@ -178,7 +183,7 @@ In PowerShell, from the repository root:
 
 ```powershell
 cargo fetch --locked
-cargo build --release --locked --features desktop-audio --bin leviathan
+cargo build --release --locked --features desktop-audio --bin leviathan --bin leviathan_agent
 cargo test --locked --features desktop-audio
 cargo test --locked --no-default-features
 cargo fmt --all -- --check

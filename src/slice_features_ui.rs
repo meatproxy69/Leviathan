@@ -100,6 +100,255 @@ pub(crate) struct Context<'a> {
     pub busy: bool,
 }
 impl SliceFeaturesUi {
+    pub(crate) fn agent_action(
+        &mut self,
+        action: &serde_json::Value,
+        editor: &mut Editor,
+        context: Context<'_>,
+    ) -> Result<Option<WorkRequest>, String> {
+        let op = action
+            .get("operation")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("catalog operation required")?;
+        if self.source != Some(context.source) {
+            self.reset();
+            self.source = Some(context.source)
+        }
+        match op {
+            "select" => {
+                let id = RegionId(
+                    action
+                        .get("id")
+                        .and_then(serde_json::Value::as_u64)
+                        .ok_or("id must be unsigned")?,
+                );
+                if editor
+                    .song
+                    .regions
+                    .get(&id)
+                    .is_none_or(|r| r.sample != context.source)
+                {
+                    return Err("region missing or belongs to another source".into());
+                };
+                let selected = action
+                    .get("selected")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(true);
+                if selected {
+                    if self.selection.len() >= slice_features::MAX_REGIONS
+                        && !self.selection.contains(&id)
+                    {
+                        return Err(format!(
+                            "at most {} regions per analysis",
+                            slice_features::MAX_REGIONS
+                        ));
+                    };
+                    self.selection.insert(id);
+                } else {
+                    self.selection.remove(&id);
+                }
+                self.cancel_commit();
+                Ok(None)
+            }
+            "select_all" => {
+                let selection: BTreeSet<_> = editor
+                    .song
+                    .regions
+                    .iter()
+                    .filter_map(|(&id, r)| (r.sample == context.source).then_some(id))
+                    .collect();
+                if selection.len() > slice_features::MAX_REGIONS {
+                    return Err("too many regions for one analysis; select a subset".into());
+                };
+                self.selection = selection;
+                self.cancel_commit();
+                Ok(None)
+            }
+            "clear_selection" => {
+                self.selection.clear();
+                self.cancel_commit();
+                Ok(None)
+            }
+            "focus" => {
+                let id = RegionId(
+                    action
+                        .get("id")
+                        .and_then(serde_json::Value::as_u64)
+                        .ok_or("id must be unsigned")?,
+                );
+                if editor
+                    .song
+                    .regions
+                    .get(&id)
+                    .is_none_or(|r| r.sample != context.source)
+                {
+                    return Err("region missing or belongs to another source".into());
+                };
+                self.focus(editor, id);
+                Ok(None)
+            }
+            "clear_role" | "clear_descriptors" => {
+                if !editor.edit_mode {
+                    return Err("edit mode required".into());
+                };
+                let id = RegionId(
+                    action
+                        .get("id")
+                        .and_then(serde_json::Value::as_u64)
+                        .ok_or("id must be unsigned")?,
+                );
+                let inspection = slice_features::inspect_catalog(&editor.song, id)?;
+                if inspection.current_binding.sample != context.source {
+                    return Err("region belongs to another source".into());
+                };
+                self.cancel_commit();
+                if op == "clear_role" {
+                    editor.set_region_role(id, None)?
+                } else {
+                    editor.clear_region_features(id)?
+                };
+                self.focus(editor, id);
+                Ok(None)
+            }
+            "analyze" => {
+                if context.busy || self.selection.is_empty() {
+                    return Err("catalog analysis needs an idle worker and selected regions".into());
+                };
+                let request = FeatureRequest {
+                    version: slice_features::VERSION,
+                    sample: context.source,
+                    regions: self.selected_ids(),
+                };
+                self.cancel_commit();
+                self.measured = None;
+                self.catalog = None;
+                self.plan_key = None;
+                self.choices.clear();
+                self.error = None;
+                self.notice =
+                    "Analyzing native descriptors; document and playback remain unchanged.".into();
+                Ok(Some(WorkRequest::Analyze(Box::new(AnalyzeRequest {
+                    song: Box::new(editor.song.clone()),
+                    revision: editor.revision(),
+                    request,
+                    path: context.path,
+                    cache: context.cache.cloned(),
+                }))))
+            }
+            "set_role" => {
+                let id = RegionId(
+                    action
+                        .get("id")
+                        .and_then(serde_json::Value::as_u64)
+                        .ok_or("id must be unsigned")?,
+                );
+                let label: RoleLabel = serde_json::from_value(
+                    action
+                        .get("label")
+                        .cloned()
+                        .ok_or("label object required")?,
+                )
+                .map_err(|e| e.to_string())?;
+                if editor
+                    .song
+                    .regions
+                    .get(&id)
+                    .is_none_or(|r| r.sample != context.source)
+                {
+                    return Err("region missing or belongs to another source".into());
+                };
+                self.choices.insert(id, label.clone());
+                self.role = Some(RoleDraft {
+                    region: id,
+                    revision: editor.revision(),
+                    base: Arc::new(editor.song.clone()),
+                    label,
+                });
+                self.cancel_commit();
+                self.update_plan();
+                Ok(None)
+            }
+            "save_role" => {
+                if !editor.edit_mode {
+                    return Err("edit mode required".into());
+                };
+                let d = self
+                    .role
+                    .as_ref()
+                    .ok_or("set a reviewed role draft first")?;
+                if d.revision != editor.revision() || d.base.as_ref() != &editor.song {
+                    return Err("role draft is stale".into());
+                };
+                editor.set_region_role(d.region, Some(d.label.clone()))?;
+                self.focus(editor, d.region);
+                Ok(None)
+            }
+            "store" => {
+                if !editor.edit_mode
+                    || context.busy
+                    || !self.current(editor, context.source, context.asset)
+                {
+                    return Err(
+                        "store requires edit mode, idle worker and current measurements".into(),
+                    );
+                };
+                self.update_plan();
+                let (_, plan) = self
+                    .catalog
+                    .as_ref()
+                    .ok_or("catalog store preview unavailable")?;
+                self.authorized = true;
+                self.verified = None;
+                Ok(Some(WorkRequest::Verify(Box::new(Verification {
+                    revision: editor.revision(),
+                    preview_id: self
+                        .measured
+                        .as_ref()
+                        .ok_or("measurements missing")?
+                        .preview
+                        .id()
+                        .into(),
+                    selection: self.selected_ids(),
+                    asset: context.asset.clone(),
+                    path: context.path,
+                    plan: Arc::clone(plan),
+                }))))
+            }
+            "commit_verified" => {
+                let verified = self
+                    .verified
+                    .take()
+                    .ok_or("no verified catalog store waiting")?;
+                let valid = self.authorized
+                    && editor.edit_mode
+                    && self.current(editor, context.source, context.asset)
+                    && verified.revision == editor.revision()
+                    && verified.asset == *context.asset
+                    && verified.selection == self.selected_ids()
+                    && self
+                        .measured
+                        .as_ref()
+                        .is_some_and(|m| m.preview.id() == verified.preview_id)
+                    && self
+                        .catalog
+                        .as_ref()
+                        .is_some_and(|(_, p)| p.id() == verified.plan.id());
+                self.authorized = false;
+                if !valid {
+                    return Err("catalog verification is stale or canceled".into());
+                };
+                editor.commit_region_catalog_preview(verified.revision, &verified.plan)?;
+                self.notice =
+                    "Stored reviewed catalog metadata (one undo); playback is unchanged.".into();
+                Ok(None)
+            }
+            "cancel" => {
+                self.cancel_commit();
+                Ok(None)
+            }
+            _ => Err(format!("unsupported catalog operation: {op}")),
+        }
+    }
     pub(crate) fn reset(&mut self) {
         *self = Self::default();
     }
@@ -641,7 +890,6 @@ impl SliceFeaturesUi {
             }
         }
     }
-    #[cfg(any(test, feature = "ui-capture"))]
     pub(crate) fn capture_state(
         &self,
         editor: &Editor,

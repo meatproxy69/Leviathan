@@ -8,6 +8,7 @@ use crate::{
     transforms::TransformScope,
 };
 use eframe::egui::{self, Color32, RichText};
+use serde_json::{json, Value};
 use std::{
     sync::mpsc::{self, Receiver, TryRecvError},
     thread,
@@ -120,6 +121,161 @@ pub(crate) struct GrooveUi {
     notice: Option<String>,
 }
 impl GrooveUi {
+    pub(crate) fn agent_state(&self, editor: &Editor) -> Value {
+        let draft = self.draft.as_ref();
+        json!({"component":"groove","open":self.is_open(),"busy":self.busy(),"current":draft.is_some_and(|d|self.current_for(editor,d)),"phase":if self.busy(){"busy"}else if self.cached.is_some()&&draft.is_some_and(|d|self.current_for(editor,d)){"preview_ready"}else if self.is_open(){"draft"}else{"closed"},
+            "actions":["open","set_draft","preview","poll","commit","remove_template","cancel","close","reset"],
+            "draft_fields":{"tab":"capture|apply","marker_set":"null|u64","name":"string","start_marker":"integer text","end_marker":"integer text, exclusive","include_start":"bool","division":"Sixteenth|ThirtySecond|SixtyFourth|OneTwentyEighth","cycle":"integer text 1..1024","groove":"null|u64","pattern":"u64","track":"u64","columns":"array<u16>","row_start":"integer text","row_end":"integer text, exclusive","strength":"integer text 0..100"},
+            "draft":draft.map(|d|json!({"revision":d.revision,"tab":if d.tab==Tab::Capture{"capture"}else{"apply"},"marker_set":d.marker_set,"name":d.name,"start_marker":d.start_marker,"end_marker":d.end_marker,"include_start":d.include_start,"division":d.division,"cycle":d.cycle,"groove":d.groove,"pattern":d.pattern,"track":d.track,"columns":d.columns,"row_start":d.row_start,"row_end":d.row_end,"strength":d.strength,"parsed_capture":d.capture_config().ok(),"parsed_apply":d.apply_config().ok()})),
+            "preview":self.cached.as_ref().map(|c|match &c.plan{Plan::Capture(p)=>json!({"kind":"capture","revision":c.revision,"current":draft.is_some_and(|d|self.current_for(editor,d)),"config":p.config(),"summary":p.summary(),"template":p.template()}),Plan::Apply(p)=>json!({"kind":"apply","revision":c.revision,"current":draft.is_some_and(|d|self.current_for(editor,d)),"config":p.config(),"summary":p.summary(),"changes":p.changes()})}),"error":self.error,"notice":self.notice,"edit_mode":editor.edit_mode})
+    }
+
+    pub(crate) fn agent_action(
+        &mut self,
+        editor: &mut Editor,
+        _base: Option<&std::path::Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let object = action.as_object().ok_or("Action must be a JSON object")?;
+        let verb = object
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("Action requires a string `action`")?;
+        match verb {
+            "open" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.open(editor);
+            }
+            "cancel" | "close" | "reset" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.reset_document();
+            }
+            "set_draft" => {
+                ensure_agent_fields(object, &["action", "values"])?;
+                let values = object
+                    .get("values")
+                    .and_then(Value::as_object)
+                    .ok_or("set_draft requires object values")?;
+                let mut d = self
+                    .draft
+                    .clone()
+                    .ok_or("Open groove before setting its draft")?;
+                for (field, v) in values {
+                    match field.as_str() {
+                        "tab" => {
+                            d.tab = match v.as_str() {
+                                Some("capture") => Tab::Capture,
+                                Some("apply") => Tab::Apply,
+                                _ => return Err("tab must be capture or apply".into()),
+                            }
+                        }
+                        "marker_set" => {
+                            d.marker_set = agent_optional_id(v, "marker_set")?.map(MarkerSetId)
+                        }
+                        "groove" => d.groove = agent_optional_id(v, "groove")?.map(GrooveId),
+                        "name" => d.name = v.as_str().ok_or("name must be text")?.into(),
+                        "start_marker" => {
+                            d.start_marker =
+                                v.as_str().ok_or("start_marker must remain text")?.into()
+                        }
+                        "end_marker" => {
+                            d.end_marker = v.as_str().ok_or("end_marker must remain text")?.into()
+                        }
+                        "include_start" => {
+                            d.include_start = v.as_bool().ok_or("include_start must be boolean")?
+                        }
+                        "division" => {
+                            d.division = agent_division(v.as_str().ok_or("division must be text")?)?
+                        }
+                        "cycle" => d.cycle = v.as_str().ok_or("cycle must remain text")?.into(),
+                        "pattern" => {
+                            d.pattern = PatternId(v.as_u64().ok_or("pattern must be u64")?)
+                        }
+                        "track" => d.track = TrackId(v.as_u64().ok_or("track must be u64")?),
+                        "columns" => {
+                            d.columns = serde_json::from_value(v.clone())
+                                .map_err(|_| "columns must be an array of u16")?
+                        }
+                        "row_start" => {
+                            d.row_start = v.as_str().ok_or("row_start must remain text")?.into()
+                        }
+                        "row_end" => {
+                            d.row_end = v.as_str().ok_or("row_end must remain text")?.into()
+                        }
+                        "strength" => {
+                            d.strength = v.as_str().ok_or("strength must remain text")?.into()
+                        }
+                        _ => return Err(format!("Unknown groove draft field `{field}`")),
+                    }
+                }
+                if self.draft.as_ref() != Some(&d) {
+                    self.invalidate("Settings changed: preview this exact timing recipe again.");
+                }
+                self.draft = Some(d);
+            }
+            "preview" => {
+                ensure_agent_fields(object, &["action"])?;
+                if self.draft.is_none() {
+                    return Err("Open groove before previewing".into());
+                }
+                self.start_preview(editor);
+            }
+            "poll" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.poll();
+            }
+            "commit" => {
+                ensure_agent_fields(object, &["action"])?;
+                if !editor.edit_mode {
+                    return Err("Enable Edit Mode to commit groove".into());
+                }
+                let d = self.draft.as_ref().ok_or("Open groove first")?;
+                if !self.current_for(editor, d) {
+                    return Err("Groove preview is stale or missing".into());
+                }
+                let cached = self.cached.as_ref().unwrap();
+                let created = match &cached.plan {
+                    Plan::Capture(p) => Some(p.summary().groove),
+                    Plan::Apply(_) => None,
+                };
+                match &cached.plan {
+                    Plan::Capture(p) => editor.commit_groove_capture_preview(cached.revision, p)?,
+                    Plan::Apply(p) => editor.commit_groove_preview(cached.revision, p)?,
+                };
+                self.invalidate(if created.is_some() {
+                    "Timing template saved (one Undo)."
+                } else {
+                    "Timing committed once."
+                });
+                if let Some(d) = &mut self.draft {
+                    d.revision = editor.revision();
+                    if let Some(id) = created {
+                        d.groove = Some(id);
+                        d.tab = Tab::Apply;
+                    }
+                }
+            }
+            "remove_template" => {
+                ensure_agent_fields(object, &["action"])?;
+                if !editor.edit_mode {
+                    return Err("Enable Edit Mode to remove a saved timing template".into());
+                }
+                let id = self
+                    .draft
+                    .as_ref()
+                    .and_then(|d| d.groove)
+                    .ok_or("Choose a saved template first")?;
+                editor.remove_groove(id)?;
+                self.invalidate("Template removed (one Undo); existing cells unchanged.");
+                if let Some(d) = &mut self.draft {
+                    d.groove = None;
+                    d.revision = editor.revision();
+                }
+            }
+            _ => return Err(format!("Unknown groove action `{verb}`")),
+        }
+        Ok(self.agent_state(editor))
+    }
     pub(crate) fn open(&mut self, editor: &Editor) {
         self.reset_document();
         self.draft = Some(Draft {
@@ -405,6 +561,35 @@ impl GrooveUi {
         }
     }
 }
+fn ensure_agent_fields(
+    object: &serde_json::Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("Unknown action field `{key}`"));
+    }
+    Ok(())
+}
+fn agent_optional_id(value: &Value, label: &str) -> Result<Option<u64>, String> {
+    if value.is_null() {
+        Ok(None)
+    } else {
+        value
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| format!("{label} must be null or u64"))
+    }
+}
+fn agent_division(value: &str) -> Result<Subdivision, String> {
+    match value {
+        "Sixteenth" => Ok(Subdivision::Sixteenth),
+        "ThirtySecond" => Ok(Subdivision::ThirtySecond),
+        "SixtyFourth" => Ok(Subdivision::SixtyFourth),
+        "OneTwentyEighth" => Ok(Subdivision::OneTwentyEighth),
+        _ => Err("Unknown subdivision".into()),
+    }
+}
+
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String, width: f32) {
     ui.label(label);
     ui.add(
@@ -870,6 +1055,28 @@ fn warnings(ui: &mut egui::Ui, warnings: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_state_discloses_phase_and_rejects_unknown_actions() {
+        let mut e = Editor::default();
+        let mut ui = GrooveUi::default();
+        assert_eq!(ui.agent_state(&e)["phase"], "closed");
+        assert!(ui
+            .agent_action(&mut e, None, json!({"action":"unlisted"}))
+            .is_err());
+        ui.agent_action(&mut e, None, json!({"action":"open"}))
+            .unwrap();
+        assert!(ui.agent_state(&e)["open"].as_bool().unwrap());
+        assert!(ui
+            .agent_action(
+                &mut e,
+                None,
+                json!({"action":"set_draft","values":{"unknown":true}})
+            )
+            .is_err());
+        ui.agent_action(&mut e, None, json!({"action":"cancel"}))
+            .unwrap();
+        assert!(!ui.agent_state(&e)["open"].as_bool().unwrap());
+    }
     #[test]
     fn exact_numeric_text_rejects_instead_of_clamping() {
         for value in [

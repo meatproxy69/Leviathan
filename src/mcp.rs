@@ -1,7 +1,7 @@
 //! Local, headless MCP adapter. All musical validation, history and rendering use
 //! the same Song / Editor / project / evaluator implementations as the GUI.
 use crate::{
-    editor::Editor,
+    editor::{DocumentOwner, Editor},
     project,
     session::{Action, Session},
     song::*,
@@ -2421,6 +2421,9 @@ pub struct Server {
     editor: Editor,
     session: Session,
     revision: u64,
+    bound_editor_revision: Option<u64>,
+    bound_document_owner: Option<DocumentOwner>,
+    live_document_context: bool,
     phase: Phase,
     overwrite: Option<Overwrite>,
     token_serial: u64,
@@ -2452,6 +2455,9 @@ impl Server {
             editor,
             session,
             revision: 0,
+            bound_editor_revision: None,
+            bound_document_owner: None,
+            live_document_context: false,
             phase: Phase::New,
             overwrite: None,
             token_serial: 0,
@@ -2901,7 +2907,7 @@ impl Server {
         Ok(pending)
     }
     fn state(&self) -> Value {
-        json!({"scope":"headless_session","path":self.session.path.as_ref().map(|p| self.workspace.display(p)),"dirty":self.editor.dirty,
+        json!({"scope":if self.live_document_context {"bound_live_gui_document"} else {"isolated_headless_document"},"path":self.session.path.as_ref().map(|p| self.workspace.display(p)),"dirty":self.editor.dirty,
             "can_undo":self.editor.can_undo(),"can_redo":self.editor.can_redo(),"title":self.editor.song.title,
             "track_count":self.editor.song.tracks.len(),"instrument_count":self.editor.song.instruments.len(),
             "pattern_count":self.editor.song.patterns.len(),"generated_pattern_count":self.editor.song.patterns.values().filter(|pattern|pattern.generation.is_some()).count(),"occurrence_count":self.editor.song.order.len(),
@@ -2935,8 +2941,8 @@ impl Server {
         let mut limits = json!({"max_message_bytes":MAX_MESSAGE,"max_batch_operations":MAX_OPERATIONS,"max_document_bytes":MAX_DOCUMENT,"history_entries":64,"export_max_seconds":600,"max_phrase_definitions":128,"max_phrase_rows":1024,"max_phrase_columns":16,"max_phrase_cycles":64,"max_phrase_definition_cells":32768,"max_evaluated_phrase_triggers":256,"max_expanded_actions":65536,"max_note_starts":2048,"max_sample_sources":128,"max_sample_regions":4096,"max_encoded_sample_bytes":crate::sample_asset::MAX_ENCODED_BYTES,"max_decoded_sample_bytes":crate::sample_asset::MAX_SAMPLE_VALUES*4,"project_max_registered_encoded_bytes":256*1024*1024,"analysis_max_seconds":MAX_ANALYSIS_SECONDS,"analysis_max_suggestions":MAX_ANALYSIS_SUGGESTIONS,"analysis_max_waveform_bins":MAX_ANALYSIS_BINS,"max_marker_sets":128,"max_marker_boundaries":257,"max_compile_cycles":16,"max_compile_columns":256,"max_preview_bytes":MAX_PREVIEW_BYTES,"max_cleanup_candidates":MAX_ANALYSIS_SUGGESTIONS,"onset_v2_max_seconds":MAX_ONSET_SECONDS,"onset_v2_max_proposals":MAX_ONSET_SUGGESTIONS,"onset_v2_max_curve_page_bins":MAX_ONSET_PAGE,"onset_v2_max_serialized_result_bytes":MAX_ONSET_RESULT_BYTES,"onset_v2_max_result_page_records":MAX_ONSET_RESULT_PAGE,"onset_v2_max_retained_cache_bytes":crate::onset_service::MAX_RETAINED_BYTES,"onset_v2_max_work_units":500_000_000,"onset_v2_max_working_bytes":128*1024*1024});
         limits["max_drum_kits"] = json!(128);
         limits["max_pads_per_kit"] = json!(16);
-        json!({"api_version":API_VERSION,"protocol_version":PROTOCOL_VERSION,"application_version":env!("CARGO_PKG_VERSION"),
-            "scope":"isolated_headless_document","workspace_root":self.workspace.root,"stable_ids":"nonzero u64; IDs survive reorder/rename; explicit IDs except shared compiler/fresh-kit allocation",
+        let mut capabilities = json!({"api_version":API_VERSION,"protocol_version":PROTOCOL_VERSION,"application_version":env!("CARGO_PKG_VERSION"),
+            "scope":if self.live_document_context {"bound_live_gui_document"} else {"isolated_headless_document"},"workspace_root":self.workspace.root,"stable_ids":"nonzero u64; IDs survive reorder/rename; explicit IDs except shared compiler/fresh-kit allocation",
             "available":["project_read_create_open_save","atomic_revision_checked_edit_batches","tracks","instruments_and_root_confined_samples","patterns_and_cells","order_repeat_and_independent_clone","undo_redo","offline_evaluate_and_wav_export","demo_sample_generation","instrument_bound_phrases","verified_wav_flac_import","non_destructive_sample_regions","bounded_transient_suggestions","persistent_accepted_marker_sets","reviewable_marker_cleanup","editable_break_compile_preview_commit","persistent_marker_locks_and_precise_edits","experimental_onset_v2_cached_repick_and_evidence","single_layer_16_pad_drum_kits","guarded_drum_step_projection_and_exact_cell_edits","track_block_aliases_and_occurrence_mutes","reviewed_scoped_offline_cell_transforms","seeded_versioned_pattrns_euclidean_generation","optional_region_amp_envelopes_and_forward_loops","velocity_zones_and_deterministic_pad_round_robin","accepted_marker_groove_capture_and_timing_transfer","melodic_multisample_keyzones","isolated_occurrence_resample_to_new_asset","reviewable_tempo_and_pulse_phase_hypotheses","bounded_region_and_pad_audition_metadata","reviewed_accepted_marker_pad_bank","reviewed_whole_cell_rectangle_copy_paste_clear","persisted_track_balance_review_and_offline_render"],
             "step_effects":{"retrigger":"1..16 additional starts; spacing in row fractions; pitched note required","release":"row-local fraction initiates release: legacy de-click or opted-in region release_ms; zero milliseconds may stop abruptly","glide":"MIDI target 0..127; 0.01..120 semitones/second","cut":"absolute row fraction [0,1), at/after delayed starts; abrupt active-voice stop, may click; cannot combine release","offset":"zero-based source sample frame <=u32::MAX; decoded sample bounds checked at render","direction":"Forward or Reverse; reverse new notes start at last real source frame unless offset is given; advanced path uses linear interpolation"},
             "phrases":{"storage":"Song.phrases keyed by stable PhraseId; each definition binds one instrument","trigger":"Cell.phrase contains phrase ID and 1..64 total cycles; Pitched and melodic Multisample instruments transpose relative to root_note; kit phrases require neutral root-note triggers","timing":"Independent phrase LPB at song BPM; shared sample-frame evaluator","attributes":"Trigger gain multiplies internal velocity; pan is added and clamped to -1..1","nested_triggers":false,"manifest_schema":4},
@@ -2963,7 +2969,22 @@ impl Server {
             "sampler":sampler,
             "unavailable":{"gui_instance_control":"No GUI IPC; an already-open editor is not synchronized","live_transport":"No audio device is opened by this server","plugins":"Not implemented","phrase_aliases_nested":"Phrase aliases and nested triggers are not implemented","automatic_break_understanding":"Full raw-audio tempo/downbeat/meter analysis, automatic BPM assignment, authoritative drum classification, seeded/random break rearrangement beyond reviewed whole-cell THIN and time stretch are unavailable; explicit seeded THIN, native slice descriptors/heuristic role suggestions and bounded reviewed timing-point hypotheses are available, while accepted markers and Use BPM remain explicit","arbitrary_effect_codes":"Only typed supported step commands accepted","async_cancellation":"Synchronous tools; client may terminate child process","legacy_experiments":"pattrns experiment panel and probe utilities are not exposed","gui_cursor_edit_mode":"No GUI cursor/navigation or Edit Mode control; MCP edits are explicit authorized transactions"},
             "limits":limits,
-            "filesystem_policy":"Relative musical-artifact paths only; no parent traversal, symlinks or nonregular files. Existing projects require a revision-bound overwrite token; export and sample generation never overwrite."})
+            "filesystem_policy":"Relative musical-artifact paths only; no parent traversal, symlinks or nonregular files. Existing projects require a revision-bound overwrite token; export and sample generation never overwrite."});
+        if self.live_document_context {
+            capabilities["unavailable"]["gui_instance_control"] = json!("This dispatcher is bound to the live GUI Editor and Session document. The host bridge exposes typed application actions and runtime state; raw UI automation, screenshots and rendered-text inspection are not provided.");
+            capabilities["unavailable"]["live_transport"] = json!("Live Play/Stop/Loop/Follow/seek controls are exposed by the host GUI bridge; this document dispatcher does not open or directly command the audio device.");
+            capabilities["unavailable"]["gui_cursor_edit_mode"] = json!("This document API does not change cursor/navigation or Edit Mode. Document edits preserve the GUI's current Edit Mode and honor its edit guards; raw keyboard or mouse automation is not provided.");
+            capabilities["track_mix"]["scope"] = json!("Persisted gain/balance/mute/solo changes in this live GUI document; immediate playback updates are handled by the host runtime bridge only when the active snapshot matches.");
+            capabilities["track_mix"]["unavailable"] = json!([
+                "live_gui_meter_readback",
+                "automation",
+                "fx",
+                "stems",
+                "midi",
+                "recording"
+            ]);
+        }
+        capabilities
     }
     fn execute(&mut self, name: &str, arguments: Value) -> Outcome<Value> {
         match name {
@@ -2985,7 +3006,7 @@ impl Server {
                         "defaults":{"gain":1.0,"balance":0.0,"mute":false,"solo":false},
                         "compiled_layout_checked":false,"live_update_applied":false,
                         "source_identity_verified_now":false,"audio_rendered":false,
-                        "notice":"Persisted settings in this isolated headless Song only. Omitted tracks use neutral defaults; any solo gates non-solo tracks, including a solo on a silent track, and mute wins. This read does not compile routing or claim source/render/live readiness. Use track_mix_preview for a complete-set routing review; saved settings affect later starts and offline export, never an already-open GUI."
+                        "notice":if self.live_document_context {"Persisted settings in the bound live GUI document. Omitted tracks use neutral defaults; any solo gates non-solo tracks, including a solo on a silent track, and mute wins. This read does not compile routing or claim a runtime update; use track_mix_preview for a complete-set review. The host bridge may apply saved values to a matching active snapshot."} else {"Persisted settings in this isolated headless Song only. Omitted tracks use neutral defaults; any solo gates non-solo tracks, including a solo on a silent track, and mute wins. This read does not compile routing or claim source/render/live readiness. Use track_mix_preview for a complete-set routing review; saved settings affect later starts and offline export, never an already-open GUI."}
                     }))?,
                     "instruments" => json!({"instruments":self.editor.song.instruments}),
                     "patterns" => json!({"patterns":self.editor.song.patterns}),
@@ -5229,15 +5250,113 @@ impl Server {
         }
     }
     fn tool_result(&mut self, name: &str, arguments: Value) -> Value {
-        let result = self.execute(name, arguments);
-        let failed = result.is_err();
-        let data = match result {
+        let data = self.agent_call(name, arguments);
+        let failed = data.get("ok") == Some(&Value::Bool(false));
+        json!({"content":[{"type":"text","text":data.to_string()}],"structuredContent":data,"isError":failed})
+    }
+
+    /// Dispatch one validated musical operation without an MCP transport envelope.
+    /// The operation list, schemas, state and protections are shared with MCP.
+    pub fn agent_call(&mut self, name: &str, arguments: Value) -> Value {
+        let canonical = name.trim().to_ascii_lowercase();
+        if !TOOL_NAMES.contains(&canonical.as_str()) {
+            return json!({"ok":false,"revision":self.revision,"data":{},"error":{"code":"capability_unavailable","message":"Unknown or unavailable capability","details":{}}});
+        }
+        match self.execute(&canonical, arguments) {
             Ok(data) => json!({"ok":true,"revision":self.revision,"data":data}),
             Err(error) => {
                 json!({"ok":false,"revision":self.revision,"data":{},"error":{"code":error.code,"message":error.message,"details":error.details}})
             }
+        }
+    }
+
+    /// Process one direct-agent envelope. This is deliberately not JSON-RPC.
+    pub fn agent_request(&mut self, request: Value) -> Value {
+        let Some(object) = request.as_object() else {
+            return agent_error("invalid_request", "Expected a JSON object");
         };
-        json!({"content":[{"type":"text","text":data.to_string()}],"structuredContent":data,"isError":failed})
+        match object.get("command").and_then(Value::as_str).map(str::trim) {
+            Some("help") => {
+                json!({"ok":true,"commands":["help","discover","call"],"protocol":"leviathan-agent/1","max_message_bytes":MAX_MESSAGE})
+            }
+            Some("discover") => {
+                json!({"ok":true,"protocol":"leviathan-agent/1","tools":tool_catalog()})
+            }
+            Some("call") => {
+                let Some(name) = object.get("name").and_then(Value::as_str) else {
+                    return agent_error("invalid_request", "call requires a string name");
+                };
+                let arguments = match object.get("arguments") {
+                    None => json!({}),
+                    Some(value) if value.is_object() => value.clone(),
+                    Some(_) => {
+                        return agent_error("invalid_request", "arguments must be a JSON object")
+                    }
+                };
+                self.agent_call(name, arguments)
+            }
+            _ => agent_error("invalid_request", "command must be help, discover, or call"),
+        }
+    }
+
+    /// Dispatch against a live document without cloning or replacing its identity.
+    /// Keep this Server bound to the same GUI document for the lifetime of any review tokens.
+    pub fn agent_request_with_document(
+        &mut self,
+        editor: &mut Editor,
+        session: &mut Session,
+        request: Value,
+    ) -> Value {
+        std::mem::swap(&mut self.editor, editor);
+        std::mem::swap(&mut self.session, session);
+        let previous_live_context = self.live_document_context;
+        self.live_document_context = true;
+        let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let current_editor_revision = self.editor.revision();
+            let current_owner = self.editor.document_owner();
+            let owner_changed = self
+                .bound_document_owner
+                .as_ref()
+                .is_some_and(|previous| !previous.same_owner(&current_owner));
+            if owner_changed
+                || self
+                    .bound_editor_revision
+                    .is_some_and(|previous| previous != current_editor_revision)
+            {
+                self.advance();
+            }
+            let response = self.agent_request(request);
+            self.bound_editor_revision = Some(self.editor.revision());
+            self.bound_document_owner = Some(self.editor.document_owner());
+            response
+        }));
+        self.live_document_context = previous_live_context;
+        std::mem::swap(&mut self.editor, editor);
+        std::mem::swap(&mut self.session, session);
+        match dispatched {
+            Ok(response) => response,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    /// Resolve a workspace artifact path with the same root, symlink and existence policy as operations.
+    pub fn agent_resolve_path(&self, path: &str, must_exist: bool) -> Result<PathBuf, String> {
+        self.workspace
+            .resolve(path, must_exist)
+            .map_err(|error| error.message)
+    }
+
+    /// Synchronize the bound live document and return this agent session's revision.
+    pub fn agent_revision_with_document(
+        &mut self,
+        editor: &mut Editor,
+        session: &mut Session,
+    ) -> u64 {
+        self.agent_request_with_document(
+            editor,
+            session,
+            json!({"command":"call","name":"leviathan_project_read","arguments":{"section":"summary"}}),
+        )["revision"].as_u64().unwrap_or(self.revision)
     }
     /// Process one JSON-RPC message. Notifications never produce responses.
     pub fn handle(&mut self, message: Value) -> Option<Value> {
@@ -5361,6 +5480,58 @@ fn onset_result(
 
 fn rpc_error(id: Value, code: i32, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
+}
+
+fn agent_error(code: &str, message: &str) -> Value {
+    json!({"ok":false,"error":{"code":code,"message":message}})
+}
+
+/// Persistent newline-delimited JSON interface for direct agent clients.
+/// It uses the same validated dispatcher as MCP but has no JSON-RPC lifecycle.
+pub fn serve_agent(
+    root: &Path,
+    mut input: impl BufRead,
+    mut output: impl Write,
+) -> Result<(), String> {
+    let mut server = Server::new(root)?;
+    loop {
+        let mut line = Vec::new();
+        let mut oversized = false;
+        loop {
+            let available = input.fill_buf().map_err(|e| e.to_string())?;
+            if available.is_empty() {
+                break;
+            }
+            let length = available
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(available.len(), |index| index + 1);
+            let newline = available[length - 1] == b'\n';
+            if line.len().saturating_add(length) <= MAX_MESSAGE && !oversized {
+                line.extend_from_slice(&available[..length]);
+            } else {
+                oversized = true;
+            }
+            input.consume(length);
+            if newline {
+                break;
+            }
+        }
+        if line.is_empty() && !oversized {
+            return Ok(());
+        }
+        let response = if oversized {
+            agent_error("message_too_large", "Message exceeds 1 MiB limit")
+        } else {
+            match serde_json::from_slice::<Value>(&line) {
+                Ok(request) => server.agent_request(request),
+                Err(_) => agent_error("parse_error", "Input line is not valid JSON"),
+            }
+        };
+        serde_json::to_writer(&mut output, &response).map_err(|e| e.to_string())?;
+        output.write_all(b"\n").map_err(|e| e.to_string())?;
+        output.flush().map_err(|e| e.to_string())?;
+    }
 }
 
 /// Newline-delimited stdio; memory bounded independently of client framing.

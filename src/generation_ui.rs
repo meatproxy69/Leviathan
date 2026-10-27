@@ -7,6 +7,7 @@ use crate::{
     tracker_ui::{grid_id, AQUA},
 };
 use eframe::egui::{self, Color32, RichText};
+use serde_json::{json, Value};
 use std::{
     sync::mpsc::{self, Receiver, TryRecvError},
     thread,
@@ -124,6 +125,153 @@ pub(crate) struct GenerationUi {
     notice: Option<String>,
 }
 impl GenerationUi {
+    pub(crate) fn agent_state(&self, editor: &Editor) -> Value {
+        let draft = self.draft.as_ref();
+        let current = draft.is_some_and(|_| self.current(editor));
+        json!({
+            "component":"generation","open":self.is_open(),"busy":self.busy(),"current":current,"phase":if self.busy(){"busy"}else if current&&self.cached.is_some(){"preview_ready"}else if self.is_open(){"draft"}else{"closed"},
+            "actions":["open","set_draft","preview","poll","commit","cancel","close","reset"],
+            "draft_fields":{"name":"string","instrument":"u64","bars":"integer text 1..16","seed":"u64 text","steps":"integer text 1..128","pulses":"integer text 1..steps","rotation":"integer text 0..steps-1","probability":"decimal text 0..1","sequence":"array of {note:integer text 12..127, velocity:decimal text 0..1}"},
+            "draft":draft.map(|d|json!({"revision":d.revision,"cursor":{"occurrence":d.context.occurrence,"pattern":d.context.pattern,"track":d.context.track,"row":d.context.row,"column":d.context.column,"field":d.context.field},"name":d.name,"instrument":d.instrument,"bars":d.bars,"seed":d.seed,"steps":d.steps,"pulses":d.pulses,"rotation":d.rotation,"probability":d.probability,"sequence":d.sequence.iter().map(|n|json!({"note":n.note,"velocity":n.velocity})).collect::<Vec<_>>(),"parsed_config":d.effective_config().ok()})),
+            "preview":self.cached.as_ref().map(|c|json!({"revision":c.revision,"current":current,"config":c.preview.config(),"summary":c.preview.summary()})),
+            "error":self.error,"notice":self.notice,"edit_mode":editor.edit_mode
+        })
+    }
+
+    pub(crate) fn agent_action(
+        &mut self,
+        editor: &mut Editor,
+        _base: Option<&std::path::Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let object = action.as_object().ok_or("Action must be a JSON object")?;
+        let verb = object
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("Action requires a string `action`")?;
+        match verb {
+            "open" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.open(editor);
+            }
+            "close" | "cancel" | "reset" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.reset_document();
+            }
+            "set_draft" => {
+                ensure_agent_fields(object, &["action", "values"])?;
+                let values = object
+                    .get("values")
+                    .and_then(Value::as_object)
+                    .ok_or("set_draft requires an object `values`")?;
+                let mut draft = self
+                    .draft
+                    .clone()
+                    .ok_or("Open generation before setting its draft")?;
+                for (field, value) in values {
+                    match field.as_str() {
+                        "name" => {
+                            draft.name = value.as_str().ok_or("name must be text")?.to_owned()
+                        }
+                        "instrument" => {
+                            draft.instrument = InstrumentId(
+                                value
+                                    .as_u64()
+                                    .filter(|id| *id > 0)
+                                    .ok_or("instrument must be a positive integer")?,
+                            )
+                        }
+                        "bars" => {
+                            draft.bars = value.as_str().ok_or("bars must remain text")?.to_owned()
+                        }
+                        "seed" => {
+                            draft.seed = value.as_str().ok_or("seed must remain text")?.to_owned()
+                        }
+                        "steps" => {
+                            draft.steps = value.as_str().ok_or("steps must remain text")?.to_owned()
+                        }
+                        "pulses" => {
+                            draft.pulses =
+                                value.as_str().ok_or("pulses must remain text")?.to_owned()
+                        }
+                        "rotation" => {
+                            draft.rotation = value
+                                .as_str()
+                                .ok_or("rotation must remain text")?
+                                .to_owned()
+                        }
+                        "probability" => {
+                            draft.probability = value
+                                .as_str()
+                                .ok_or("probability must remain text")?
+                                .to_owned()
+                        }
+                        "sequence" => {
+                            let notes = value.as_array().ok_or("sequence must be an array")?;
+                            draft.sequence = notes
+                                .iter()
+                                .map(|note| {
+                                    let note = note
+                                        .as_object()
+                                        .ok_or("sequence entries must be objects")?;
+                                    ensure_agent_fields(note, &["note", "velocity"])?;
+                                    Ok(NoteDraft {
+                                        note: note
+                                            .get("note")
+                                            .and_then(Value::as_str)
+                                            .ok_or("sequence note must remain text")?
+                                            .to_owned(),
+                                        velocity: note
+                                            .get("velocity")
+                                            .and_then(Value::as_str)
+                                            .ok_or("sequence velocity must remain text")?
+                                            .to_owned(),
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, String>>()?;
+                        }
+                        _ => return Err(format!("Unknown generation draft field `{field}`")),
+                    }
+                }
+                if self.draft.as_ref() != Some(&draft) {
+                    self.invalidate("Agent settings changed: preview the exact new generation.");
+                }
+                self.draft = Some(draft);
+            }
+            "preview" => {
+                ensure_agent_fields(object, &["action"])?;
+                if self.draft.is_none() {
+                    return Err("Open generation before previewing".into());
+                }
+                self.start_preview(editor);
+            }
+            "poll" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.poll();
+            }
+            "commit" => {
+                ensure_agent_fields(object, &["action"])?;
+                if !editor.edit_mode {
+                    return Err("Enable Edit Mode to commit generated cells".into());
+                }
+                if !self.current(editor) {
+                    return Err("Generation preview is stale or missing; preview the exact current draft first".into());
+                }
+                let cached = self.cached.as_ref().unwrap();
+                let occurrence = cached.preview.summary().occurrence;
+                let track = cached.preview.summary().track;
+                editor.commit_generation_preview(cached.revision, &cached.preview)?;
+                editor.select(occurrence, track)?;
+                editor.row = 0;
+                editor.column = 0;
+                editor.field = Field::Note;
+                self.reset_document();
+            }
+            _ => return Err(format!("Unknown generation action `{verb}`")),
+        }
+        Ok(self.agent_state(editor))
+    }
+
     pub(crate) fn open(&mut self, editor: &Editor) {
         self.reset_document();
         self.draft = Some(Draft {
@@ -343,6 +491,16 @@ impl GenerationUi {
         false
     }
 }
+fn ensure_agent_fields(
+    object: &serde_json::Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("Unknown action field `{key}`"));
+    }
+    Ok(())
+}
+
 fn number(ui: &mut egui::Ui, label: &str, value: &mut String, width: f32) {
     ui.label(label);
     ui.add(egui::TextEdit::singleline(value).desired_width(width));
@@ -605,6 +763,37 @@ pub(crate) fn provenance_details(ui: &mut egui::Ui, provenance: &generation::Gen
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_exposes_lifecycle_and_rejects_unknown_draft_fields() {
+        let mut e = Editor {
+            edit_mode: true,
+            ..Default::default()
+        };
+        let mut ui = GenerationUi::default();
+        let state = ui.agent_state(&e);
+        assert!(state["actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a == "preview"));
+        ui.agent_action(&mut e, None, json!({"action":"open"}))
+            .unwrap();
+        assert!(ui
+            .agent_action(&mut e, None, json!({"action":"commit"}))
+            .unwrap_err()
+            .contains("stale or missing"));
+        let error = ui
+            .agent_action(
+                &mut e,
+                None,
+                json!({"action":"set_draft","values":{"surprise":true}}),
+            )
+            .unwrap_err();
+        assert!(error.contains("Unknown"));
+        ui.agent_action(&mut e, None, json!({"action":"cancel"}))
+            .unwrap();
+        assert!(!ui.agent_state(&e)["open"].as_bool().unwrap());
+    }
     #[test]
     fn canceled_generation_stays_tracked_and_late_result_is_not_installed() {
         let mut editor = Editor::default();

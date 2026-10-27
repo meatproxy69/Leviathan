@@ -10,6 +10,7 @@ use crate::{
     tracker_ui::{grid_id, AQUA},
 };
 use eframe::egui::{self, Color32, RichText};
+use serde_json::{json, Value};
 use std::{
     path::PathBuf,
     sync::{
@@ -111,11 +112,151 @@ pub(crate) struct ResampleUi {
     retained: Option<Retained>,
     epoch: u64,
     commit_authorized: bool,
+    agent_registration_requested: bool,
     error: Option<String>,
     notice: String,
     event: Option<String>,
 }
+#[cfg(test)]
+mod agent_tests {
+    use super::*;
+    #[test]
+    fn verified_commit_requires_explicit_agent_registration_readiness() {
+        let mut e = Editor::default();
+        let mut ui = ResampleUi::default();
+        assert_eq!(ui.agent_state(&e)["phase"], "closed");
+        assert!(ui
+            .agent_action(&mut e, None, json!({"action":"commit_verified"}))
+            .is_err());
+        ui.open = true;
+        ui.agent_registration_requested = true;
+        ui.finish_registration(&mut e, false);
+        ui.cancel_commit();
+        assert!(ui.agent_registration_requested);
+    }
+}
 impl ResampleUi {
+    pub(crate) fn agent_state(&self, e: &Editor) -> Value {
+        json!({"component":"resample","open":self.open,"busy":self.busy(),"phase":if self.busy(){"busy"}else if self.verified.is_some(){"verified_ready"}else if self.printed.as_ref().is_some_and(|_|self.current_print(e)){"printed_ready"}else if self.prepared.as_ref().is_some_and(|_|self.current_plan(e)){"prepared_ready"}else if self.open{"draft"}else{"closed"},"actions":["open","set_draft","prepare","poll","print","register","commit_verified","cancel_task","cancel_registration","forget_receipt","close","reset"],
+        "draft_fields":{"occurrence":"integer text 0..u32::MAX","name":"string","root":"integer text 0..127","tail":"MusicalOnly|ReleaseTail","output":"absolute .wav path within session base"},
+        "draft":self.draft.as_ref().map(|d|json!({"revision":d.revision,"cursor":{"occurrence":d.context.occurrence,"track":d.context.track,"row":d.context.row,"column":d.context.column,"field":d.context.field},"occurrence":d.occurrence,"name":d.name,"root":d.root,"tail":d.tail,"output":d.output,"parsed":d.config().ok()})),
+        "pending":self.pending.as_ref().map(|p|json!({"label":p.label,"revision":p.revision,"cancel_requested":p.cancel.load(Ordering::Acquire)})),"prepared":self.prepared.as_ref().map(|p|json!({"revision":p.revision,"context_current":self.current_plan(e),"config":p.value.config(),"summary":p.value.summary()})),"printed":self.printed.as_ref().map(|p|json!({"revision":p.revision,"current":self.current_print(e),"config":p.value.config(),"summary":p.value.summary(),"receipt":p.value.receipt()})),"verified":self.verified.as_ref().map(|p|json!({"revision":p.revision,"current":self.current_print(e),"ready_for_agent_commit":self.agent_registration_requested,"summary":p.value.summary(),"receipt":p.value.receipt()})),"retained":self.retained.as_ref().map(|r|json!({"config":r.config,"receipt":r.receipt,"asset":r.asset,"registered_once":r.registered_once})),"registration_authorized":self.commit_authorized,"agent_registration_requested":self.agent_registration_requested,"error":self.error,"notice":self.notice,"event":self.event,"edit_mode":e.edit_mode,"publication_supported":resample::PUBLICATION_SUPPORTED})
+    }
+
+    pub(crate) fn agent_action(
+        &mut self,
+        e: &mut Editor,
+        base: Option<&std::path::Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let object = action.as_object().ok_or("Action must be a JSON object")?;
+        let verb = object
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("Action requires string action")?;
+        match verb {
+            "open" => {
+                agent_fields(object, &["action", "output"])?;
+                let base = base.ok_or("Resampling needs the current project directory as base")?;
+                let output = object
+                    .get("output")
+                    .and_then(Value::as_str)
+                    .map(|v| agent_output(base, v))
+                    .transpose()?
+                    .unwrap_or_else(|| base.join("resampled.leviathan.wav"));
+                self.open_for(e, output);
+            }
+            "close" | "cancel" => {
+                agent_fields(object, &["action"])?;
+                self.hide();
+            }
+            "reset" => {
+                agent_fields(object, &["action"])?;
+                self.reset_document();
+            }
+            "set_draft" => {
+                agent_fields(object, &["action", "values"])?;
+                if self.busy() || self.retained.is_some() {
+                    return Err("Wait for pending work and explicitly forget the retained receipt before editing options".into());
+                }
+                let values = object
+                    .get("values")
+                    .and_then(Value::as_object)
+                    .ok_or("set_draft requires object values")?;
+                let d = self.draft.as_mut().ok_or("Open resampling first")?;
+                for (field, v) in values {
+                    match field.as_str() {
+                        "occurrence" => {
+                            d.occurrence = v.as_str().ok_or("occurrence must remain text")?.into()
+                        }
+                        "name" => d.name = v.as_str().ok_or("name must be text")?.into(),
+                        "root" => d.root = v.as_str().ok_or("root must remain text")?.into(),
+                        "tail" => {
+                            d.tail = match v.as_str() {
+                                Some("MusicalOnly") => TailPolicy::MusicalOnly,
+                                Some("ReleaseTail") => TailPolicy::ReleaseTail,
+                                _ => return Err("tail must be MusicalOnly or ReleaseTail".into()),
+                            }
+                        }
+                        "output" => {
+                            d.output = agent_output(
+                                base.ok_or(
+                                    "Resampling needs the current project directory as base",
+                                )?,
+                                v.as_str().ok_or("output must be a path string")?,
+                            )?
+                            .display()
+                            .to_string()
+                        }
+                        _ => return Err(format!("Unknown resample draft field `{field}`")),
+                    }
+                }
+                self.invalidate();
+                self.error = None;
+                self.notice = "Options changed; prepare a new resample plan.".into();
+            }
+            "prepare" => {
+                agent_fields(object, &["action"])?;
+                let r = self.prepare(e);
+                self.result(r);
+            }
+            "poll" => {
+                agent_fields(object, &["action"])?;
+                self.sync(e);
+                self.poll();
+            }
+            "print" => {
+                agent_fields(object, &["action"])?;
+                let r = self.print(e);
+                self.result(r);
+            }
+            "register" => {
+                agent_fields(object, &["action"])?;
+                let r = self.register_for_agent(e);
+                self.result(r);
+            }
+            "commit_verified" => {
+                agent_fields(object, &["action"])?;
+                self.commit_verified_for_agent(e)?;
+            }
+            "cancel_task" => {
+                agent_fields(object, &["action"])?;
+                self.cancel_task();
+            }
+            "cancel_registration" => {
+                agent_fields(object, &["action"])?;
+                self.agent_registration_requested = false;
+                self.cancel_commit();
+            }
+            "forget_receipt" => {
+                agent_fields(object, &["action"])?;
+                let r = self.forget();
+                self.result(r);
+            }
+            _ => return Err(format!("Unknown resample action `{verb}`")),
+        }
+        Ok(self.agent_state(e))
+    }
     pub fn open_for(&mut self, editor: &Editor, output: PathBuf) {
         if self.draft.is_none() {
             self.draft = Some(Draft {
@@ -139,6 +280,12 @@ impl ResampleUi {
     }
     pub fn cancel_commit(&mut self) {
         self.commit_authorized = false;
+        if !self.agent_registration_requested {
+            self.verified = None;
+        }
+    }
+    fn cancel_agent_registration(&mut self) {
+        self.agent_registration_requested = false;
         self.verified = None;
     }
     /// Hiding the inspector does not cancel a file publication. It does cancel
@@ -146,6 +293,7 @@ impl ResampleUi {
     pub fn hide(&mut self) {
         self.open = false;
         self.cancel_commit();
+        self.cancel_agent_registration();
     }
     fn invalidate(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
@@ -156,6 +304,7 @@ impl ResampleUi {
         self.printed = None;
         self.verified = None;
         self.commit_authorized = false;
+        self.agent_registration_requested = false;
     }
     pub fn reset_document(&mut self) {
         self.invalidate();
@@ -302,6 +451,56 @@ impl ResampleUi {
         self.commit_authorized = true;
         Ok(())
     }
+    fn register_for_agent(&mut self, e: &Editor) -> Result<(), String> {
+        if !e.edit_mode {
+            return Err("Enable Edit mode to register a published asset".into());
+        }
+        if !self.current_print(e) {
+            return Err("Registration is stale. The published WAV remains; no document changes were applied".into());
+        }
+        let p = self.printed.as_ref().unwrap();
+        let preview = Arc::clone(&p.value);
+        self.spawn(
+            p.revision,
+            p.context.clone(),
+            "Checking artifact + prospective project sources/storage…",
+            move |_| {
+                resample::verify_artifact(&preview, |_| Ok(()))?;
+                Ok(Completed::Verified(preview))
+            },
+        )?;
+        self.agent_registration_requested = true;
+        Ok(())
+    }
+    fn commit_verified_for_agent(&mut self, e: &mut Editor) -> Result<(), String> {
+        if self.busy() {
+            return Err("Poll until artifact verification is complete before committing".into());
+        }
+        if !self.agent_registration_requested {
+            return Err("No agent registration request is awaiting commit".into());
+        }
+        let p = self
+            .verified
+            .take()
+            .ok_or("No verified registration is ready")?;
+        self.agent_registration_requested = false;
+        if !self.open || !e.edit_mode || !self.current_print(e) {
+            return Err("Verified registration is stale or Edit Mode is off; published WAV remains and no document edit was applied".into());
+        }
+        e.commit_resample_preview(p.revision, &p.value)?;
+        if let Some(r) = &mut self.retained {
+            r.registered_once = true;
+        }
+        if let Some(d) = &mut self.draft {
+            d.revision = e.revision();
+        }
+        self.prepared = None;
+        self.printed = None;
+        self.error = None;
+        self.notice = "Registered source + full region + new instrument in one undo. Existing notes/cursor unchanged. Save the Song separately; Undo never deletes the WAV.".into();
+        self.event = Some(self.notice.clone());
+        Ok(())
+    }
     pub fn poll(&mut self) {
         let Some(p) = &self.pending else {
             return;
@@ -341,7 +540,9 @@ impl ResampleUi {
                 });
                 self.notice="Preview only: no file or document has been changed. Print publishes a new external WAV.".into();
             }
-            Ok(Completed::Verified(value)) if current && self.commit_authorized => {
+            Ok(Completed::Verified(value))
+                if current && (self.commit_authorized || self.agent_registration_requested) =>
+            {
                 self.verified = Some(Cached {
                     revision: p.revision,
                     context: p.context,
@@ -351,12 +552,18 @@ impl ResampleUi {
             Ok(_) => {}
             Err(error) => {
                 self.commit_authorized = false;
+                self.agent_registration_requested = false;
                 self.error = Some(error.clone());
                 self.event = Some(error);
             }
         }
     }
     fn finish_registration(&mut self, e: &mut Editor, enabled: bool) {
+        // Agent registration is completed only by its explicit commit_verified action.
+        // A GUI frame must not consume or cancel that readiness based on keyboard focus.
+        if self.agent_registration_requested {
+            return;
+        }
         let Some(p) = self.verified.take() else {
             return;
         };
@@ -493,6 +700,46 @@ impl ResampleUi {
         serde_json::json!({"open":self.open,"busy":self.busy(),"pending":self.pending.as_ref().map(|p|serde_json::json!({"label":p.label,"cancel_requested":p.cancel.load(Ordering::Acquire)})),"registration_authorized":self.commit_authorized,"error":self.error,"notice":self.notice,"draft":self.draft.as_ref().map(|d|serde_json::json!({"occurrence":d.occurrence,"root":d.root,"name":d.name,"output":d.output,"tail":d.tail})),"prepared":self.prepared.as_ref().map(|p|serde_json::json!({"id":p.value.id(),"config":p.value.config(),"summary":p.value.summary(),"current":self.current_plan(e)})),"printed":self.printed.as_ref().map(|p|serde_json::json!({"id":p.value.id(),"config":p.value.config(),"summary":p.value.summary(),"receipt":p.value.receipt(),"candidate":p.value.candidate(),"current":self.current_print(e)})),"retained":self.retained.as_ref().map(|r|serde_json::json!({"config":r.config,"receipt":r.receipt,"asset":r.asset,"registered_once":r.registered_once}))})
     }
 }
+fn agent_fields(object: &serde_json::Map<String, Value>, allowed: &[&str]) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("Unknown action field `{key}`"));
+    }
+    Ok(())
+}
+fn agent_output(base: &std::path::Path, value: &str) -> Result<PathBuf, String> {
+    let entered = PathBuf::from(value);
+    let output = if entered.is_absolute() {
+        entered
+    } else {
+        base.join(entered)
+    };
+    if !output.is_absolute()
+        || !output
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("wav"))
+        || output.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir | std::path::Component::CurDir
+            )
+        })
+    {
+        return Err("output must be an absolute .wav path under the project base, without . or .. components".into());
+    }
+    let base = base
+        .canonicalize()
+        .map_err(|e| format!("Cannot resolve project base: {e}"))?;
+    let parent = output
+        .parent()
+        .ok_or("output has no parent directory")?
+        .canonicalize()
+        .map_err(|e| format!("Cannot resolve output directory: {e}"))?;
+    if !parent.starts_with(&base) {
+        return Err("output directory must stay under the project base".into());
+    }
+    Ok(output)
+}
+
 fn number(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.label(label);
     ui.add(

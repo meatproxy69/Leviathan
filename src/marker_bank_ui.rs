@@ -138,6 +138,172 @@ pub(crate) struct MarkerBankUi {
     body_layout: Option<(egui::Rect, f32)>,
 }
 impl MarkerBankUi {
+    pub(crate) fn agent_action(
+        &mut self,
+        action: &serde_json::Value,
+        editor: &mut Editor,
+        context: &Context,
+    ) -> Result<Option<WorkRequest>, String> {
+        let kind = action
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("action.action must be string")?;
+        match kind {
+            "open" => {
+                let marker = action
+                    .get("marker_set")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or("marker_set must be unsigned")?;
+                let source = action
+                    .get("source")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or("source must be unsigned")?;
+                self.open(MarkerSetId(marker), SampleId(source));
+                Ok(None)
+            }
+            "patch" => {
+                let mut draft = self.draft.clone().ok_or("open a marker bank draft first")?;
+                let fields = action
+                    .get("fields")
+                    .and_then(serde_json::Value::as_object)
+                    .ok_or("fields must be object")?;
+                for (k, v) in fields {
+                    match k.as_str() {
+                        "name" => draft.name = v.as_str().ok_or("name must be text")?.into(),
+                        "intervals" => {
+                            draft.intervals = v.as_str().ok_or("intervals must be text")?.into()
+                        }
+                        _ => return Err(format!("unknown marker bank draft field: {k}")),
+                    }
+                }
+                self.draft = Some(draft);
+                self.cancel_commit();
+                self.epoch = self.epoch.wrapping_add(1);
+                self.prepared = None;
+                self.error = None;
+                Ok(None)
+            }
+            "all_intervals" | "clear_intervals" => {
+                let draft = self
+                    .draft
+                    .as_mut()
+                    .ok_or("open a marker bank draft first")?;
+                if kind == "clear_intervals" {
+                    draft.intervals.clear()
+                } else {
+                    let set = editor
+                        .song
+                        .marker_sets
+                        .get(&draft.marker_set)
+                        .ok_or("marker set no longer exists")?;
+                    draft.intervals = (0..set.markers.len().saturating_sub(1))
+                        .map(|i| i.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }
+                self.cancel_commit();
+                self.epoch = self.epoch.wrapping_add(1);
+                self.prepared = None;
+                Ok(None)
+            }
+            "preview" => {
+                let draft = self
+                    .draft
+                    .as_ref()
+                    .ok_or("open a marker bank draft first")?
+                    .clone();
+                if context.busy
+                    || !context.markers_saved
+                    || context.marker_set != Some(draft.marker_set)
+                    || context.source != Some(draft.source)
+                {
+                    return Err(
+                        "bank preview requires the current saved marker set and idle source worker"
+                            .into(),
+                    );
+                };
+                draft.config()?;
+                crate::project::check_serialized_size(&editor.song)?;
+                self.cancel_commit();
+                self.committed = false;
+                self.prepared = None;
+                self.notice = None;
+                Ok(Some(WorkRequest::Preview(Box::new(PreviewRequest {
+                    song: Box::new(editor.song.clone()),
+                    revision: editor.revision(),
+                    epoch: self.epoch,
+                    draft,
+                    path: context.path.clone(),
+                }))))
+            }
+            "create" => {
+                let draft = self
+                    .draft
+                    .as_ref()
+                    .ok_or("open a marker bank draft first")?;
+                if !editor.edit_mode || context.busy || !self.current(editor, context, draft) {
+                    return Err(
+                        "create requires edit mode and a current reviewed bank preview".into(),
+                    );
+                };
+                self.authorized = true;
+                self.error = None;
+                Ok(Some(WorkRequest::Verify(
+                    self.prepared
+                        .as_ref()
+                        .ok_or("bank preview missing")?
+                        .clone(),
+                )))
+            }
+            "open_kit" => {
+                if !self.created_exists(editor) {
+                    return Err("created kit is missing or bank has not been committed".into());
+                }
+                let summary = &self
+                    .prepared
+                    .as_ref()
+                    .ok_or("bank preview missing")?
+                    .preview
+                    .summary();
+                let pad = summary.pads.first().ok_or("created bank has no pads")?.pad;
+                self.open_kit = Some((summary.instrument, pad));
+                Ok(None)
+            }
+            "commit_verified" => {
+                let verified = self
+                    .verified
+                    .take()
+                    .ok_or("no verified create result is waiting")?;
+                let draft = self.draft.as_ref().ok_or("bank dialog is closed")?;
+                let valid = self.authorized
+                    && editor.edit_mode
+                    && context.markers_saved
+                    && context.marker_set == Some(draft.marker_set)
+                    && context.source == Some(draft.source)
+                    && self.current(editor, context, draft)
+                    && self
+                        .prepared
+                        .as_ref()
+                        .is_some_and(|p| p.preview.id() == verified.preview.id());
+                self.authorized = false;
+                if !valid {
+                    return Err("verified bank result became stale or was canceled".into());
+                };
+                editor.commit_marker_bank_preview(verified.revision, &verified.preview)?;
+                self.committed = true;
+                self.notice = Some(
+                    "Bank created (one undo); source, markers and arrangement are unchanged."
+                        .into(),
+                );
+                Ok(None)
+            }
+            "cancel" => {
+                self.close();
+                Ok(None)
+            }
+            _ => Err(format!("unsupported marker bank action: {kind}")),
+        }
+    }
     pub(crate) fn open(&mut self, marker_set: MarkerSetId, source: SampleId) {
         self.reset();
         self.draft = Some(Draft {
@@ -370,9 +536,8 @@ impl MarkerBankUi {
     fn created_exists(&self, editor: &Editor) -> bool {
         self.committed && self.prepared.as_ref().is_some_and(|p| {let s=p.preview.summary(); matches!(editor.song.instruments.get(&s.instrument).map(|i| &i.kind),Some(crate::song::InstrumentKind::DrumKit{kit}) if *kit==s.kit) && editor.song.drum_kits.contains_key(&s.kit)})
     }
-    #[cfg(any(test, feature = "ui-capture"))]
     pub(crate) fn capture_state(&self) -> serde_json::Value {
-        serde_json::json!({"body_layout":self.body_layout.map(|(r,y)|serde_json::json!({"rect":[r.left(),r.top(),r.right(),r.bottom()],"offset_y":y})),"open":self.draft.is_some(),"epoch":self.epoch,"authorized":self.authorized,"verified_waiting":self.verified.is_some(),"committed":self.committed,"error":self.error,"notice":self.notice,"draft":self.draft.as_ref().map(|d|serde_json::json!({"marker_set":d.marker_set,"source":d.source,"name":d.name,"intervals":d.intervals,"parsed":d.config().ok()})),"preview":self.prepared.as_ref().map(|p|serde_json::json!({"id":p.preview.id(),"revision":p.revision,"config":p.preview.config(),"summary":p.preview.summary(),"base_sha256":p.preview.base_sha256(),"candidate_sha256":p.preview.candidate_sha256(),"candidate":p.preview.candidate()}))})
+        serde_json::json!({"open":self.draft.is_some(),"epoch":self.epoch,"authorized":self.authorized,"verified_waiting":self.verified.is_some(),"committed":self.committed,"open_kit_pending":self.open_kit,"error":self.error,"notice":self.notice,"draft":self.draft.as_ref().map(|d|serde_json::json!({"marker_set":d.marker_set,"source":d.source,"name":d.name,"intervals":d.intervals,"parsed":d.config().ok()})),"preview":self.prepared.as_ref().map(|p|serde_json::json!({"id":p.preview.id(),"revision":p.revision,"config":p.preview.config(),"summary":p.preview.summary(),"base_sha256":p.preview.base_sha256(),"candidate_sha256":p.preview.candidate_sha256(),"candidate":p.preview.candidate()}))})
     }
 }
 

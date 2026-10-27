@@ -8,6 +8,7 @@ use crate::{
     tracker_ui::AQUA,
 };
 use eframe::egui::{self, Color32, RichText};
+use serde_json::{json, Value};
 use std::{
     sync::mpsc::{self, Receiver, TryRecvError},
     thread,
@@ -184,6 +185,140 @@ pub(crate) struct TrackMixUi {
     body_layout: Option<(egui::Rect, f32)>,
 }
 impl TrackMixUi {
+    pub(crate) fn agent_state(&self, e: &Editor) -> Value {
+        json!({"component":"mix","open":self.open,"busy":self.busy(),"current":self.current(e),"phase":if self.busy(){"busy"}else if self.current(e){"preview_ready"}else if self.open{"draft"}else{"closed"},"actions":["open","set_draft","reload","preview","poll","apply","cancel_authorization","close","meter_snapshot_latest","meter_follow_latest"],
+        "draft_fields":{"rows":"array of {track:u64,gain:string 0..1,balance:string -1..1,mute:bool,solo:bool,stored:bool}","neutral_reset":"bool; explicit empty stored map"},
+        "draft":self.draft.as_ref().map(|d|json!({"defined_tracks":d.defined_tracks,"neutral_reset":d.neutral_reset,"rows":d.rows.iter().map(|r|json!({"track":r.track,"name":r.name,"gain":r.gain,"balance":r.balance,"mute":r.mute,"solo":r.solo,"stored":r.stored})).collect::<Vec<_>>(),"parsed_config":d.config().ok()})),
+        "preview":self.ready.as_ref().map(|r|json!({"revision":r.plan.revision(),"current":self.current(e),"config":r.plan.preview().config(),"summary":r.plan.preview().summary(),"content_sha256":r.plan.preview().summary().content_sha256,"candidate_settings":r.plan.preview().candidate().track_mix})),"applied":self.applied,"error":self.error,"notice":self.notice,"edit_mode":e.edit_mode,"meters":self.meters.agent_state()})
+    }
+
+    pub(crate) fn agent_action(
+        &mut self,
+        e: &mut Editor,
+        _base: Option<&std::path::Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let object = action.as_object().ok_or("Action must be a JSON object")?;
+        let verb = object
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("Action requires string action")?;
+        match verb {
+            "open" => {
+                mix_agent_fields(object, &["action"])?;
+                self.open_for(e);
+            }
+            "close" => {
+                mix_agent_fields(object, &["action"])?;
+                self.close();
+            }
+            "reload" => {
+                mix_agent_fields(object, &["action"])?;
+                if self.busy() {
+                    return Err("Wait for the active mix preview before reloading".into());
+                }
+                self.sync(e);
+                self.draft = Some(Draft::from_song(&e.song));
+                self.ready = None;
+                self.error = None;
+                self.notice = Some("Reloaded stored document settings; no change applied.".into());
+            }
+            "set_draft" => {
+                mix_agent_fields(object, &["action", "values"])?;
+                if self.busy() {
+                    return Err("Wait for the active mix preview before editing settings".into());
+                }
+                // A new document owner can reuse the same revision. Synchronize before
+                // cloning the draft so a stale draft cannot be installed on that owner.
+                self.sync(e);
+                let values = object
+                    .get("values")
+                    .and_then(Value::as_object)
+                    .ok_or("set_draft requires object values")?;
+                mix_agent_fields(values, &["rows", "neutral_reset"])?;
+                let mut d = self.draft.clone().ok_or("Open track mix first")?;
+                if let Some(v) = values.get("neutral_reset") {
+                    let reset = v.as_bool().ok_or("neutral_reset must be boolean")?;
+                    if reset {
+                        d.reset_neutral()
+                    } else {
+                        d.neutral_reset = false;
+                    }
+                }
+                if let Some(rows) = values.get("rows") {
+                    let rows = rows.as_array().ok_or("rows must be an array")?;
+                    let mut seen = std::collections::BTreeSet::new();
+                    for value in rows {
+                        let row = value.as_object().ok_or("each row must be an object")?;
+                        mix_agent_fields(
+                            row,
+                            &["track", "gain", "balance", "mute", "solo", "stored"],
+                        )?;
+                        let id = TrackId(
+                            row.get("track")
+                                .and_then(Value::as_u64)
+                                .ok_or("row.track must be u64")?,
+                        );
+                        if !seen.insert(id) {
+                            return Err(format!("Duplicate track {}", id.0));
+                        }
+                        let target = d
+                            .rows
+                            .iter_mut()
+                            .find(|r| r.track == id)
+                            .ok_or_else(|| format!("Unknown track {}", id.0))?;
+                        if let Some(v) = row.get("gain") {
+                            target.gain = v.as_str().ok_or("gain must remain text")?.into();
+                        }
+                        if let Some(v) = row.get("balance") {
+                            target.balance = v.as_str().ok_or("balance must remain text")?.into();
+                        }
+                        if let Some(v) = row.get("mute") {
+                            target.mute = v.as_bool().ok_or("mute must be boolean")?;
+                        }
+                        if let Some(v) = row.get("solo") {
+                            target.solo = v.as_bool().ok_or("solo must be boolean")?;
+                        }
+                        if let Some(v) = row.get("stored") {
+                            target.stored = v.as_bool().ok_or("stored must be boolean")?;
+                        }
+                    }
+                    d.neutral_reset = false;
+                }
+                if self.draft.as_ref() != Some(&d) {
+                    self.invalidate("Mix draft changed; preview the exact complete set again.");
+                }
+                self.draft = Some(d);
+            }
+            "preview" => {
+                mix_agent_fields(object, &["action"])?;
+                self.start(e);
+            }
+            "poll" => {
+                mix_agent_fields(object, &["action"])?;
+                self.sync(e);
+                self.poll();
+                self.finish(e);
+            }
+            "apply" => {
+                mix_agent_fields(object, &["action"])?;
+                if !e.edit_mode {
+                    return Err("Enable Edit Mode to apply track mix settings".into());
+                }
+                self.apply(e);
+            }
+            "cancel_authorization" => {
+                mix_agent_fields(object, &["action"])?;
+                self.cancel_authorization();
+            }
+            "meter_snapshot_latest" | "meter_follow_latest" => {
+                mix_agent_fields(object, &["action"])?;
+                self.meters.agent_action(&json!({"action":if verb=="meter_snapshot_latest"{"snapshot_latest"}else{"follow_latest"}}))?;
+            }
+            _ => return Err(format!("Unknown track-mix action `{verb}`")),
+        }
+        Ok(self.agent_state(e))
+    }
     pub fn accept_meters(&mut self, poll: crate::transport::MeterPoll, now: f64) {
         self.meters.accept(poll, now);
     }
@@ -376,6 +511,16 @@ impl TrackMixUi {
             Err(error) => self.fail(error),
         }
     }
+}
+
+fn mix_agent_fields(
+    object: &serde_json::Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("Unknown action field `{key}`"));
+    }
+    Ok(())
 }
 
 fn scalar(
@@ -654,6 +799,27 @@ impl TrackMixUi {
 mod tests {
     use super::*;
     use crate::{song::Track, track_mix::TrackMix};
+    #[test]
+    fn agent_state_discloses_phase_and_rejects_unknown_actions() {
+        let mut e = Editor::default();
+        let mut ui = TrackMixUi::default();
+        assert_eq!(ui.agent_state(&e)["phase"], "closed");
+        assert!(ui
+            .agent_action(&mut e, None, json!({"action":"unlisted"}))
+            .is_err());
+        ui.agent_action(&mut e, None, json!({"action":"open"}))
+            .unwrap();
+        assert!(ui.agent_state(&e)["open"].as_bool().unwrap());
+        assert!(ui
+            .agent_action(
+                &mut e,
+                None,
+                json!({"action":"set_draft","values":{"unknown":true}})
+            )
+            .is_err());
+        ui.agent_action(&mut e, None, json!({"action":"close"}))
+            .unwrap();
+    }
     fn editor() -> Editor {
         Editor {
             edit_mode: true,

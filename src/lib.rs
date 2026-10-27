@@ -1,4 +1,6 @@
 //! Sample-accurate pattrns -> phonic bridge and synchronous offline renderer.
+#[cfg(feature = "desktop")]
+pub(crate) mod agent_bridge;
 pub mod audition;
 #[cfg(feature = "desktop")]
 pub(crate) mod audition_ui;

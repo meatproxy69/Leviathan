@@ -9,6 +9,7 @@ use crate::{
     transforms::TransformScope,
 };
 use eframe::egui::{self, Color32, RichText};
+use serde_json::{json, Value};
 use std::{
     sync::mpsc::{self, Receiver, TryRecvError},
     thread,
@@ -118,6 +119,148 @@ pub(crate) struct ThinUi {
     body_layout: Option<(egui::Rect, f32)>,
 }
 impl ThinUi {
+    pub(crate) fn agent_state(&self, e: &Editor) -> Value {
+        let draft = self.draft.as_ref();
+        let current = draft.is_some_and(|_| self.current(e));
+        json!({"component":"thin","open":self.is_open(),"busy":self.busy(),"current":current,"phase":if self.busy(){"busy"}else if current&&self.cached.is_some(){"preview_ready"}else if self.is_open(){"draft"}else{"closed"},"actions":["open","set_draft","preview","poll","select_decision","select_use","set_view","commit","cancel","close","reset"],
+        "draft_fields":{"pattern":"u64","track":"u64","columns":"array<u16>","row_start":"integer text inclusive","row_end":"integer text exclusive","seed":"u64 text","removal_percent":"integer text 0..100","max_removed":"integer text 0..4096","protected_roles":"array<kick|snare|closed_hat|open_hat_ride|crash|mixed|unknown>"},
+        "draft":draft.map(|d|json!({"revision":d.revision,"cursor":{"occurrence":d.context.occurrence,"pattern":d.context.pattern,"track":d.context.track,"row":d.context.row,"column":d.context.column,"field":d.context.field},"pattern":d.pattern,"track":d.track,"columns":d.columns,"row_start":d.start,"row_end":d.end,"seed":d.seed,"removal_percent":d.percent,"max_removed":d.cap,"protected_roles":d.protected,"parsed":d.config().ok()})),
+        "preview":self.cached.as_ref().map(|c|json!({"revision":c.revision,"id":c.preview.id(),"current":current,"config":c.preview.config(),"summary":c.preview.summary(),"selected_decision":self.selected,"selected_use":self.selected_use,"view":match self.view{View::Decisions=>"decisions",View::Changes=>"changes",View::Uses=>"uses"},"decisions":c.preview.decisions(),"uses":c.preview.uses(),"contexts":c.preview.contexts(),"changes":c.preview.changes()})),"error":self.error,"notice":self.notice,"edit_mode":e.edit_mode})
+    }
+
+    pub(crate) fn agent_action(
+        &mut self,
+        e: &mut Editor,
+        _base: Option<&std::path::Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let object = action.as_object().ok_or("Action must be a JSON object")?;
+        let verb = object
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("Action requires string action")?;
+        match verb {
+            "open" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.open(e);
+            }
+            "cancel" | "close" | "reset" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.reset_document();
+            }
+            "set_draft" => {
+                ensure_agent_fields(object, &["action", "values"])?;
+                let values = object
+                    .get("values")
+                    .and_then(Value::as_object)
+                    .ok_or("set_draft requires object values")?;
+                let mut d = self
+                    .draft
+                    .clone()
+                    .ok_or("Open THIN before setting its draft")?;
+                for (field, v) in values {
+                    match field.as_str() {
+                        "pattern" => {
+                            d.pattern = PatternId(v.as_u64().ok_or("pattern must be u64")?)
+                        }
+                        "track" => d.track = TrackId(v.as_u64().ok_or("track must be u64")?),
+                        "columns" => {
+                            d.columns = serde_json::from_value(v.clone())
+                                .map_err(|_| "columns must be array<u16>")?
+                        }
+                        "row_start" => {
+                            d.start = v.as_str().ok_or("row_start must remain text")?.into()
+                        }
+                        "row_end" => d.end = v.as_str().ok_or("row_end must remain text")?.into(),
+                        "seed" => d.seed = v.as_str().ok_or("seed must remain text")?.into(),
+                        "removal_percent" => {
+                            d.percent = v.as_str().ok_or("removal_percent must remain text")?.into()
+                        }
+                        "max_removed" => {
+                            d.cap = v.as_str().ok_or("max_removed must remain text")?.into()
+                        }
+                        "protected_roles" => d.protected = parse_roles(v)?,
+                        _ => return Err(format!("Unknown THIN draft field `{field}`")),
+                    }
+                }
+                if self.draft.as_ref() != Some(&d) {
+                    self.invalidate(
+                        "Draft changed; review the current/stale status before commit.",
+                    );
+                }
+                self.draft = Some(d);
+            }
+            "preview" => {
+                ensure_agent_fields(object, &["action"])?;
+                if self.draft.is_none() {
+                    return Err("Open THIN before previewing".into());
+                }
+                self.start(e);
+            }
+            "poll" => {
+                ensure_agent_fields(object, &["action"])?;
+                self.poll();
+            }
+            "select_decision" => {
+                ensure_agent_fields(object, &["action", "index"])?;
+                let i = object
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .ok_or("index must be u64")? as usize;
+                let p = self
+                    .cached
+                    .as_ref()
+                    .ok_or("No THIN preview to select from")?;
+                if i >= p.preview.decisions().len() {
+                    return Err("decision index is outside the preview".into());
+                }
+                self.selected = Some(i);
+                self.selected_use = None;
+            }
+            "select_use" => {
+                ensure_agent_fields(object, &["action", "index"])?;
+                let i = object
+                    .get("index")
+                    .and_then(Value::as_u64)
+                    .ok_or("index must be u64")? as usize;
+                let p = self
+                    .cached
+                    .as_ref()
+                    .ok_or("No THIN preview to select from")?;
+                if i >= p.preview.uses().len() {
+                    return Err("use index is outside the preview".into());
+                }
+                self.selected_use = Some(i);
+                self.reveal_use = true;
+            }
+            "set_view" => {
+                ensure_agent_fields(object, &["action", "view"])?;
+                self.view = match object.get("view").and_then(Value::as_str) {
+                    Some("decisions") => View::Decisions,
+                    Some("changes") => View::Changes,
+                    Some("uses") => View::Uses,
+                    _ => return Err("view must be decisions, changes, or uses".into()),
+                };
+            }
+            "commit" => {
+                ensure_agent_fields(object, &["action"])?;
+                if !e.edit_mode {
+                    return Err("Enable Edit Mode to commit THIN".into());
+                }
+                if !self.current(e) {
+                    return Err("THIN preview is stale or missing".into());
+                }
+                let c = self.cached.as_ref().unwrap();
+                if c.preview.summary().removed_cells == 0 {
+                    return Err("THIN preview has no deletions to commit".into());
+                }
+                e.commit_thin_preview(c.revision, &c.preview)?;
+                self.reset_document();
+            }
+            _ => return Err(format!("Unknown THIN action `{verb}`")),
+        }
+        Ok(self.agent_state(e))
+    }
     pub(crate) fn open(&mut self, e: &Editor) {
         let Some(context) = Context::of(e) else {
             return;
@@ -323,6 +466,20 @@ impl ThinUi {
         }
     }
 }
+fn ensure_agent_fields(
+    object: &serde_json::Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), String> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(format!("Unknown action field `{key}`"));
+    }
+    Ok(())
+}
+fn parse_roles(value: &Value) -> Result<Vec<PercussionRole>, String> {
+    serde_json::from_value(value.clone())
+        .map_err(|_| "protected_roles must be an array of documented role names".into())
+}
+
 fn bounded_name(name: &str) -> String {
     let mut chars = name.chars();
     let prefix: String = chars.by_ref().take(32).collect();
@@ -964,6 +1121,28 @@ pub(crate) fn test_song() -> crate::song::Song {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_state_discloses_phase_and_rejects_unknown_actions() {
+        let mut e = Editor::default();
+        let mut ui = ThinUi::default();
+        assert_eq!(ui.agent_state(&e)["phase"], "closed");
+        assert!(ui
+            .agent_action(&mut e, None, json!({"action":"unlisted"}))
+            .is_err());
+        let mut e = editor();
+        ui.agent_action(&mut e, None, json!({"action":"open"}))
+            .unwrap();
+        assert!(ui.agent_state(&e)["open"].as_bool().unwrap());
+        assert!(ui
+            .agent_action(
+                &mut e,
+                None,
+                json!({"action":"set_draft","values":{"unknown":true}})
+            )
+            .is_err());
+        ui.agent_action(&mut e, None, json!({"action":"cancel"}))
+            .unwrap();
+    }
     fn editor() -> Editor {
         let mut e = Editor::default();
         e.replace_document(test_song()).unwrap();

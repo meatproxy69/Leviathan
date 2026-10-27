@@ -2,15 +2,17 @@
 //! scheduling state or persistent step sequence is owned by this UI.
 use crate::{
     drum_steps::{self, StepDivision, StepEdit, StepEvent, StepProjection, StepSlot, StepView},
-    editor::{note_label, Editor},
+    editor::{Editor, note_label},
     song::{InstrumentId, Note, PadId, Retrigger},
-    tracker_ui::{grid_id, AQUA},
+    tracker_ui::{AQUA, grid_id},
 };
 use eframe::egui::{self, Align2, Color32, FontId, RichText, Stroke};
+use serde_json::{Value, json};
+use std::path::Path;
 use std::{
     sync::{
-        mpsc::{self, Receiver, TryRecvError},
         Arc,
+        mpsc::{self, Receiver, TryRecvError},
     },
     thread,
 };
@@ -33,6 +35,7 @@ struct Cached {
     key: Key,
     value: Arc<StepProjection>,
 }
+#[derive(Clone)]
 struct Draft {
     key: Key,
     event: StepEvent,
@@ -93,6 +96,404 @@ impl Default for DrumStepUi {
     }
 }
 impl DrumStepUi {
+    pub(crate) fn agent_state(&self, editor: &Editor) -> Value {
+        let projection = self.cache.as_ref().map(|c| &c.value);
+        let draft=self.draft.as_ref().map(|d|json!({"pad":d.event.pad.0,"row":d.event.row,"column":d.event.column,"instrument":d.event.instrument.0,"velocity":d.velocity,"delay_enabled":d.delay_enabled,"delay_text":d.delay,"retrigger":d.retrigger.as_ref().map(|r|json!({"repeats":r.repeats,"spacing":r.spacing})),"retrigger_spacing_text":d.retrigger_spacing}));
+        json!({"component":"steps","open":self.open,"edit_mode":editor.edit_mode,"busy":self.busy(),
+            "division":format!("{:?}",self.division),"steps":self.steps,"page":self.page,"toggle_mode":self.toggle_mode,
+            "context":self.context.map(|(o,p,t,i)|json!({"occurrence":o,"pattern":p.0,"track":t.0,"instrument":i.0})),
+            "selected":self.selected.map(|(p,s)|json!({"pad":p.0,"step":s})),"draft":draft,
+            "projection":projection.map(|p|json!({"view":p.view,"source":p.source,"read_only":p.read_only,"total_steps":p.total_steps,"total_pages":p.total_pages,"lanes":p.lanes,"issues":p.issues})),
+            "failed":self.failed.as_ref().map(|(_,error)|error),"error":self.error,"actions":{"configure":{"instrument_id":"integer","division":"Quarter|Eighth|Sixteenth|ThirtySecond|SixtyFourth|OneTwentyEighth","steps":"16|32","page":"integer","toggle_mode":"boolean"},"navigate":{"occurrence":"integer","track_id":"integer"},"close":{},"select_step":{"pad_id":"integer","step":"integer"},"select_event":{"pad_id":"integer","step":"integer","event_index":"integer"},"toggle_selected":{},"patch_draft":{"velocity":"number|null","delay_enabled":"boolean","delay_text":"string","retrigger_enabled":"boolean","repeats":"1..16","retrigger_spacing_text":"string"},"apply_velocity":{},"apply_delay":{},"apply_retrigger":{},"jump_to_event":{},"jump_issue":{"issue_index":"integer"},"clear_selection":{}},
+            "policy":{"selection_does_not_edit_song":true,"edits_require_edit_mode_and_local_writable_track":true,"projection_is_bounded":true}})
+    }
+    pub(crate) fn agent_action(
+        &mut self,
+        editor: &mut Editor,
+        _base: Option<&Path>,
+        action: Value,
+    ) -> Result<Value, String> {
+        let o = action.as_object().ok_or("action must be an object")?;
+        let name = o
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or("action name required")?;
+        let fields: &[&str] = match name {
+            "configure" => &[
+                "action",
+                "instrument_id",
+                "division",
+                "steps",
+                "page",
+                "toggle_mode",
+            ],
+            "navigate" => &["action", "occurrence", "track_id"],
+            "close" => &["action"],
+            "select_step" => &["action", "pad_id", "step"],
+            "select_event" => &["action", "pad_id", "step", "event_index"],
+            "jump_issue" => &["action", "issue_index"],
+            "patch_draft" => &[
+                "action",
+                "velocity",
+                "delay_enabled",
+                "delay_text",
+                "retrigger_enabled",
+                "repeats",
+                "retrigger_spacing_text",
+            ],
+            "toggle_selected" | "apply_velocity" | "apply_delay" | "apply_retrigger"
+            | "jump_to_event" | "clear_selection" => &["action"],
+            _ => return Err(format!("unknown steps action: {name}")),
+        };
+        if let Some(k) = o.keys().find(|k| !fields.contains(&k.as_str())) {
+            return Err(format!("field {k} is not accepted for {name}"));
+        }
+        let allowed = [
+            "action",
+            "instrument_id",
+            "division",
+            "steps",
+            "page",
+            "toggle_mode",
+            "occurrence",
+            "track_id",
+            "pad_id",
+            "step",
+            "event_index",
+            "issue_index",
+            "velocity",
+            "delay_enabled",
+            "delay_text",
+            "retrigger_enabled",
+            "repeats",
+            "retrigger_spacing_text",
+        ];
+        if let Some(k) = o.keys().find(|k| !allowed.contains(&k.as_str())) {
+            return Err(format!("unknown action field: {k}"));
+        }
+        let n = |k: &str| {
+            o.get(k)
+                .and_then(Value::as_u64)
+                .ok_or_else(|| format!("{k} must be unsigned integer"))
+        };
+        match name {
+            "close" => {
+                self.open = false;
+                self.draft = None;
+            }
+            "navigate" => {
+                let (_, _, _, instrument) = self.context.ok_or("configure a projection first")?;
+                let occurrence = n("occurrence")? as usize;
+                let track = crate::song::TrackId(n("track_id")?);
+                editor.select(occurrence, track)?;
+                let view = StepView {
+                    pattern: editor.pattern_id(),
+                    track,
+                    instrument,
+                    division: self.division,
+                    steps: self.steps,
+                    page: self.page,
+                };
+                let projection = drum_steps::project(&editor.song, &view)?;
+                let key = Key {
+                    revision: editor.revision(),
+                    occurrence,
+                    view,
+                };
+                self.context = Some((occurrence, key.view.pattern, track, instrument));
+                self.cache = Some(Cached {
+                    key,
+                    value: Arc::new(projection),
+                });
+                self.selected = None;
+                self.draft = None;
+            }
+            "configure" => {
+                let instrument = InstrumentId(n("instrument_id")?);
+                let division = match o.get("division").and_then(Value::as_str) {
+                    Some("Quarter") => StepDivision::Quarter,
+                    Some("Eighth") => StepDivision::Eighth,
+                    Some("Sixteenth") => StepDivision::Sixteenth,
+                    Some("ThirtySecond") => StepDivision::ThirtySecond,
+                    Some("SixtyFourth") => StepDivision::SixtyFourth,
+                    Some("OneTwentyEighth") => StepDivision::OneTwentyEighth,
+                    _ => return Err("invalid division".into()),
+                };
+                let steps = n("steps")?;
+                if !matches!(steps, 16 | 32) {
+                    return Err("steps must be 16 or 32".into());
+                }
+                let page = n("page")? as u32;
+                let pattern = editor.pattern_id();
+                let track = editor.track;
+                let view = StepView {
+                    pattern,
+                    track,
+                    instrument,
+                    division,
+                    steps: steps as u8,
+                    page,
+                };
+                let projected = drum_steps::project(&editor.song, &view)?;
+                self.division = division;
+                self.steps = steps as u8;
+                self.page = page;
+                self.toggle_mode = o
+                    .get("toggle_mode")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let key = Key {
+                    revision: editor.revision(),
+                    occurrence: editor.occurrence,
+                    view,
+                };
+                self.context = Some((editor.occurrence, pattern, track, instrument));
+                self.cache = Some(Cached {
+                    key,
+                    value: Arc::new(projected),
+                });
+                self.pending = None;
+                self.failed = None;
+                self.selected = None;
+                self.draft = None;
+                self.open = true;
+            }
+            "select_step" | "select_event" => {
+                let pad = PadId(n("pad_id")?);
+                let step = n("step")?;
+                if step >= u64::from(self.steps) {
+                    return Err("step outside current page".into());
+                }
+                let (occ, pattern, track, instrument) =
+                    self.context.ok_or("configure a projection first")?;
+                let view = StepView {
+                    pattern,
+                    track,
+                    instrument,
+                    division: self.division,
+                    steps: self.steps,
+                    page: self.page,
+                };
+                let proj = drum_steps::project(&editor.song, &view)?;
+                let slot = proj
+                    .lanes
+                    .iter()
+                    .find(|l| l.pad == pad)
+                    .and_then(|l| l.steps.get(step as usize))
+                    .ok_or("unknown pad or step")?;
+                self.selected = Some((pad, step as u8));
+                self.draft = None;
+                if name == "select_event" {
+                    let i = n("event_index")? as usize;
+                    let event = slot.events.get(i).ok_or("event index out of range")?;
+                    self.select_event(
+                        editor,
+                        &Key {
+                            revision: editor.revision(),
+                            occurrence: occ,
+                            view: view.clone(),
+                        },
+                        event,
+                    );
+                }
+                self.cache = Some(Cached {
+                    key: Key {
+                        revision: editor.revision(),
+                        occurrence: occ,
+                        view,
+                    },
+                    value: Arc::new(proj),
+                });
+            }
+            "toggle_selected" => {
+                let (occ, pattern, track, instrument) =
+                    self.context.ok_or("configure a projection first")?;
+                let (pad, step) = self.selected.ok_or("select a step first")?;
+                let view = StepView {
+                    pattern,
+                    track,
+                    instrument,
+                    division: self.division,
+                    steps: self.steps,
+                    page: self.page,
+                };
+                let projection = drum_steps::project(&editor.song, &view)?;
+                let key = Key {
+                    revision: editor.revision(),
+                    occurrence: occ,
+                    view,
+                };
+                self.edit(editor, &key, &projection, StepEdit::Toggle { pad, step });
+                if let Some(e) = &self.error {
+                    return Err(e.clone());
+                }
+                let refreshed = Arc::new(drum_steps::project(&editor.song, &key.view)?);
+                self.cache = Some(Cached {
+                    key,
+                    value: refreshed,
+                });
+            }
+            "patch_draft" => {
+                let mut d = self
+                    .draft
+                    .as_ref()
+                    .cloned()
+                    .ok_or("select an exact event first")?;
+                for k in o.keys() {
+                    if !allowed.contains(&k.as_str()) {
+                        return Err(format!("unknown draft field: {k}"));
+                    }
+                }
+                if let Some(v) = o.get("velocity") {
+                    d.velocity = if v.is_null() {
+                        None
+                    } else {
+                        Some(
+                            v.as_f64()
+                                .filter(|x| (0.0..=1.0).contains(x))
+                                .ok_or("velocity must be 0..1 or null")?
+                                as f32,
+                        )
+                    }
+                }
+                if let Some(v) = o.get("delay_enabled") {
+                    d.delay_enabled = v.as_bool().ok_or("delay_enabled must be boolean")?
+                }
+                if let Some(v) = o.get("delay_text") {
+                    d.delay = v.as_str().ok_or("delay_text must be string")?.into()
+                }
+                if let Some(v) = o.get("retrigger_enabled") {
+                    let yes = v.as_bool().ok_or("retrigger_enabled must be boolean")?;
+                    d.retrigger = if yes {
+                        Some(d.retrigger.clone().unwrap_or(Retrigger {
+                            repeats: 1,
+                            spacing: 0.25,
+                        }))
+                    } else {
+                        None
+                    }
+                }
+                if let Some(v) = o.get("repeats") {
+                    let r = v
+                        .as_u64()
+                        .filter(|x| (1..=16).contains(x))
+                        .ok_or("repeats must be 1..16")? as u8;
+                    d.retrigger = Some(Retrigger {
+                        repeats: r,
+                        spacing: d.retrigger.as_ref().map_or(0.25, |v| v.spacing),
+                    })
+                }
+                if let Some(v) = o.get("retrigger_spacing_text") {
+                    d.retrigger_spacing = v.as_str().ok_or("spacing text must be string")?.into()
+                }
+                self.draft = Some(d);
+            }
+            "apply_velocity" | "apply_delay" | "apply_retrigger" => {
+                let (occ, _, _, _) = self.context.ok_or("configure a projection first")?;
+                let d = self.draft.take().ok_or("select an exact event first")?;
+                let view = d.key.view.clone();
+                if d.key.revision != editor.revision() {
+                    self.draft = Some(d);
+                    return Err("event draft is stale".into());
+                }
+                let projection = drum_steps::project(&editor.song, &view)?;
+                let edit = match name {
+                    "apply_velocity" => StepEdit::SetVelocity {
+                        event: d.event.clone(),
+                        value: d.velocity,
+                    },
+                    "apply_delay" => {
+                        let value = if d.delay_enabled {
+                            Some(
+                                d.delay
+                                    .trim()
+                                    .parse::<f64>()
+                                    .ok()
+                                    .filter(|v| v.is_finite() && *v >= 0.0 && *v < 1.0)
+                                    .ok_or("delay must be finite and 0 <= value < 1")?,
+                            )
+                        } else {
+                            None
+                        };
+                        StepEdit::SetDelay {
+                            event: d.event.clone(),
+                            value,
+                        }
+                    }
+                    _ => {
+                        let value = d
+                            .retrigger
+                            .as_ref()
+                            .map(|r| {
+                                let spacing = d
+                                    .retrigger_spacing
+                                    .trim()
+                                    .parse::<f64>()
+                                    .ok()
+                                    .filter(|v| v.is_finite() && *v > 0.0)
+                                    .ok_or("spacing must be finite and positive")?;
+                                Ok::<_, String>(Retrigger {
+                                    repeats: r.repeats,
+                                    spacing,
+                                })
+                            })
+                            .transpose()?;
+                        StepEdit::SetRetrigger {
+                            event: d.event.clone(),
+                            value,
+                        }
+                    }
+                };
+                self.edit(editor, &d.key, &projection, edit);
+                if let Some(e) = &self.error {
+                    self.draft = Some(d);
+                    return Err(e.clone());
+                }
+                let key = Key {
+                    revision: editor.revision(),
+                    occurrence: occ,
+                    view,
+                };
+                let refreshed = Arc::new(drum_steps::project(&editor.song, &key.view)?);
+                self.cache = Some(Cached {
+                    key,
+                    value: refreshed,
+                });
+            }
+            "jump_to_event" => {
+                let d = self.draft.as_ref().ok_or("select an exact event first")?;
+                editor.row = d.event.row;
+                editor.column = d.event.column;
+                self.open = false;
+            }
+            "jump_issue" => {
+                let (_, _, _, instrument) = self.context.ok_or("configure a projection first")?;
+                let issue_index = n("issue_index")? as usize;
+                let view = StepView {
+                    pattern: editor.pattern_id(),
+                    track: editor.track,
+                    instrument,
+                    division: self.division,
+                    steps: self.steps,
+                    page: self.page,
+                };
+                let projection = drum_steps::project(&editor.song, &view)?;
+                let issue = projection
+                    .issues
+                    .get(issue_index)
+                    .ok_or("issue index out of range")?;
+                editor.row = issue.row;
+                editor.column = issue.column;
+                self.open = false;
+            }
+            "clear_selection" => {
+                self.selected = None;
+                self.draft = None;
+            }
+            _ => return Err(format!("unknown steps action: {name}")),
+        }
+        Ok(self.agent_state(editor))
+    }
     #[cfg(feature = "ui-capture")]
     pub(crate) fn capture_projection(&self, editor: &Editor) -> Option<&StepProjection> {
         self.cache
@@ -276,7 +677,7 @@ impl DrumStepUi {
             ui.label(RichText::new("DRUM STEPS").strong().color(AQUA));
             ui.monospace(format!(
                 "I{} · P{} shared {uses}×",
-                instrument.0, context.1 .0
+                instrument.0, context.1.0
             ));
             egui::ComboBox::from_id_salt("step-position")
                 .selected_text(format!("Position {}", editor.occurrence + 1))
@@ -704,5 +1105,24 @@ fn division_label(division: StepDivision) -> &'static str {
         StepDivision::ThirtySecond => "1/32",
         StepDivision::SixtyFourth => "1/64",
         StepDivision::OneTwentyEighth => "1/128",
+    }
+}
+
+#[cfg(test)]
+mod agent_api_tests {
+    use super::*;
+
+    #[test]
+    fn agent_state_advertises_actions_and_rejects_missing_projection_without_edit() {
+        let mut editor = Editor::default();
+        let before = editor.song.clone();
+        let mut ui = DrumStepUi::default();
+        let state = ui.agent_state(&editor);
+        assert!(state["actions"]["configure"].is_object());
+        assert!(
+            ui.agent_action(&mut editor, None, json!({"action":"toggle_selected"}))
+                .is_err()
+        );
+        assert_eq!(editor.song, before);
     }
 }

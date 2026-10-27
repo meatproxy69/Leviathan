@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 const MINT: Color32 = crate::tracker_ui::AQUA;
+mod agent;
 struct MeterBinding {
     shared: std::sync::Arc<crate::transport::Shared>,
     revision: u64,
@@ -27,6 +28,7 @@ struct NativePicker {
 }
 
 pub struct Leviathan {
+    agent_control: Option<agent::Control>,
     tracker: crate::tracker_ui::TrackerUi,
     legacy_tools: bool,
     sample_view: bool,
@@ -53,6 +55,7 @@ pub struct Leviathan {
     #[cfg(feature = "realtime")]
     transport: crate::transport::host::Transport,
     audition: crate::audition_ui::AuditionUi,
+    agent_audition: bool,
     #[cfg(any(test, feature = "ui-capture"))]
     diagnostic_audio: crate::audition_ui::diagnostic::Driver,
     follow: bool,
@@ -144,6 +147,7 @@ impl Leviathan {
             .and_then(|p| p.parent()?.parent()?.parent().map(|x| x.to_path_buf()))
             .unwrap_or_else(|| PathBuf::from("."));
         let mut app = Self {
+            agent_control: None,
             tracker: crate::tracker_ui::TrackerUi::default(),
             legacy_tools: false,
             sample_view: false,
@@ -171,6 +175,7 @@ impl Leviathan {
             #[cfg(feature = "realtime")]
             transport: crate::transport::host::Transport::default(),
             audition: crate::audition_ui::AuditionUi::default(),
+            agent_audition: false,
             #[cfg(any(test, feature = "ui-capture"))]
             diagnostic_audio: crate::audition_ui::diagnostic::Driver::default(),
             follow: true,
@@ -201,8 +206,19 @@ impl Leviathan {
             .replace_document(crate::song::startup_song())
             .expect("valid startup song");
         let args: Vec<_> = std::env::args().collect();
-        if args.len() == 3 && args[1] == "--project" {
-            let path = PathBuf::from(&args[2]);
+        if let Some(path) = args
+            .windows(2)
+            .find(|pair| pair[0] == "--project")
+            .map(|pair| {
+                let path = PathBuf::from(&pair[1]);
+                if path.is_relative() && args.iter().any(|a| a == "--agent-stdio") {
+                    if let Some(root) = args.windows(2).find(|p| p[0] == "--workspace-root") {
+                        return PathBuf::from(&root[1]).join(path);
+                    }
+                }
+                path
+            })
+        {
             let result = app.session.request(
                 &mut app.tracker.editor,
                 crate::session::Action::Open(path.clone()),
@@ -318,6 +334,22 @@ impl Leviathan {
             app.capture = Some(PathBuf::from(&args[3]));
             app.transport_smoke = true;
             app.play_song();
+        }
+        if args.iter().any(|arg| arg == "--agent-stdio") {
+            let result = args
+                .windows(2)
+                .find(|pair| pair[0] == "--workspace-root")
+                .ok_or_else(|| "--agent-stdio requires --workspace-root DIRECTORY".to_string())
+                .and_then(|pair| {
+                    agent::Control::connect(std::path::Path::new(&pair[1]), &cc.egui_ctx)
+                });
+            match result {
+                Ok(control) => app.agent_control = Some(control),
+                Err(error) => {
+                    eprintln!("Leviathan agent: {error}");
+                    app.error = Some(error);
+                }
+            }
         }
         app
     }
@@ -687,6 +719,7 @@ impl Leviathan {
         self.audition.cancel(
             "Hard Stop requested; it may click. Submitted hardware buffers cannot be retracted.",
         );
+        self.agent_audition = false;
     }
     fn poll_transport(&mut self) {
         let was_busy = self.transport_busy();
@@ -704,6 +737,7 @@ impl Leviathan {
             }
             if was_busy && !self.transport_busy() {
                 self.audition.finish(self.transport_error().cloned());
+                self.agent_audition = false;
             }
         }
     }
@@ -726,12 +760,14 @@ impl Leviathan {
         }
     }
     fn audition_blocked(&self, ctx: &egui::Context) -> bool {
-        ctx.input(|i| {
-            !i.focused
-                || i.events
-                    .iter()
-                    .any(|event| matches!(event, egui::Event::WindowFocused(false)))
-        }) || ctx.input(|i| i.viewport().close_requested())
+        (!self.agent_audition
+            && ctx.input(|i| {
+                !i.focused
+                    || i.events
+                        .iter()
+                        .any(|event| matches!(event, egui::Event::WindowFocused(false)))
+            }))
+            || ctx.input(|i| i.viewport().close_requested())
             || self.session.close_ready
             || self.session.pending.is_some()
             || self.session.overwrite.is_some()
@@ -781,33 +817,7 @@ impl Leviathan {
                     self.audition.notice = None;
                 }
                 crate::audition_ui::Action::Start(request) => {
-                    let result = (|| {
-                        if !self.audio_available() {
-                            return Err("Realtime audio is unavailable in this build".into());
-                        }
-                        if self.audition_blocked(ctx) {
-                            return Err(
-                                "Audition is blocked by focus, project confirmation or closing"
-                                    .into(),
-                            );
-                        }
-                        if self.transport_busy() {
-                            return Err(
-                                "Transport is active or still stopping; no mixing or takeover"
-                                    .into(),
-                            );
-                        }
-                        if self.audition_request().as_ref() != Some(&request) {
-                            return Err(
-                                "Audition request changed before Start; select it again".into()
-                            );
-                        }
-                        let prepared =
-                            crate::audition_ui::AuditionUi::prepare(&self.tracker.editor, request)?;
-                        self.start_transport(prepared.preview.song().clone(), None, false)?;
-                        self.audition.install(prepared);
-                        Ok(())
-                    })();
+                    let result = self.start_audition_request(ctx, request);
                     if let Err(error) = result {
                         self.audition.error = Some(error);
                         self.audition.notice = None;
@@ -955,6 +965,7 @@ impl Leviathan {
                     && self.session.overwrite.is_none()
                 {
                     if matches!(self.session.notice.as_str(), "New song" | "Project opened") {
+                        self.tracker.agent_reset_document();
                         self.revoke_mix_owner();
                         self.mix_editor.reset_document();
                         self.sample_editor.reset_document();
@@ -1156,6 +1167,7 @@ impl Leviathan {
         match self.start_transport(self.tracker.editor.song.clone(), base, self.loop_song) {
             Ok(()) => {
                 self.error = None;
+                self.agent_audition = false;
                 self.audition.song_started();
                 self.meter_binding = None;
                 self.mix_editor.clear_meters("Preparing Song meters");
@@ -1540,6 +1552,7 @@ impl Leviathan {
 }
 impl eframe::App for Leviathan {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_agent_commands(ctx);
         self.poll_native_sample_picker();
         self.guard_mix_owner();
         self.mix_editor.poll();
