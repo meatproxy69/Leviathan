@@ -7,10 +7,11 @@
 A native Rust tracker and sequencer for editable patterns, phrases, arrangement, groove, and seeded generation.
 
 [![Alpha 2](https://img.shields.io/badge/release-Alpha_2-66ddcc)](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.2)
-[![Windows and Linux builds](https://img.shields.io/badge/builds-Windows_%2B_Linux-82aaff)](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.2)
+[![Windows x86_64](https://img.shields.io/badge/Windows-x86__64-0078D4)](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.2/leviathan-v0.1.0-alpha.2-windows-x86_64.zip)
+[![Linux x86_64](https://img.shields.io/badge/Linux-x86__64-82aaff)](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.2/leviathan-v0.1.0-alpha.2-linux-x86_64.tar.gz)
 [![AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-aaaaaa)](LICENSE)
 
-**[Alpha 2 downloads](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.2)** · **[Build from source](#build-from-source)** · **[Try a demo](#try-a-song-in-three-commands)** · **[Agent workflow](#agent-first-no-mcp-required)**
+**[Download for Windows](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.2/leviathan-v0.1.0-alpha.2-windows-x86_64.zip)** · **[Download for Linux](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.2/leviathan-v0.1.0-alpha.2-linux-x86_64.tar.gz)** · **[Build from source](#build-from-source)** · **[Try a demo](#try-a-song-in-three-commands)** · **[Agent workflow](#agent-first-no-mcp-required)**
 
 ![LEVIATHAN Alpha 1 tracker showing editable notes and the song order](docs/images/tracker.png)
 
@@ -64,6 +65,20 @@ earlier Linux-only release; see its [historical release page](https://github.com
 
 **No samples or recordings are bundled.** Bring your own audio, or generate the
 optional synthetic demo locally using the commands below.
+
+### Run on Windows
+
+Download the Windows x86_64 ZIP above and extract it to a folder. Open the
+extracted `bin` folder and run `leviathan.exe`. No separate installation is
+required. To open an existing project from PowerShell, run:
+
+```powershell
+.\bin\leviathan.exe --project "C:\path\to\song.leviathan.json"
+```
+
+The [SHA256SUMS](https://github.com/meatproxy69/Leviathan/releases/download/v0.1.0-alpha.2/SHA256SUMS)
+file contains checksums for both platform archives. Windows builds and automated
+tests passed; live audio playback has not yet been verified.
 
 ## Try a song in three commands
 
@@ -173,9 +188,8 @@ cargo fmt --all --check
 The desktop executable is `target\release\leviathan.exe`; command-line tools
 can be built separately. The optional `realtime-probe` feature enables phonic’s
 ASIO backend and requires the ASIO SDK and libclang; the desktop app uses CPAL
-directly and does not require that feature. Alpha 1 did not include a Windows
-binary. The Alpha 2 package link is above; its asset becomes available when the
-release is published.
+directly and does not require that feature. A prebuilt Windows Alpha 2 package
+is available in the download section above.
 When real-time playback runs, its per-user lease is stored under
 `%LOCALAPPDATA%\Leviathan\transport.lock` (falling back to `%APPDATA%`, then the
 system temporary directory). A stale lease is refused; remove it only after
