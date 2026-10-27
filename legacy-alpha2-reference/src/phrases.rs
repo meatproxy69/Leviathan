@@ -260,11 +260,14 @@ pub(crate) fn evaluate(
             title: phrase.name.clone(),
             bpm: song.bpm,
             lines_per_beat: phrase.lines_per_beat,
+            samples: song.samples.clone(),
+            regions: song.regions.clone(),
             instruments: BTreeMap::from([(
                 group.owner,
                 Instrument {
                     name: song.instruments[&group.owner].name.clone(),
                     sample: song.instruments[&group.owner].sample.clone(),
+                    region: song.instruments[&group.owner].region,
                     phrases: BTreeMap::new(),
                 },
             )]),

@@ -9,20 +9,42 @@ crossbeam-queue = "=0.3.14"
 cpal = { version = "=0.17.3", optional = true }
 image = { version = "=0.25.10", optional = true, default-features = false, features = ["png"] }
 eframe = { version = "=0.33.3", optional = true, default-features = false, features = ["default_fonts", "glow"] }
-rfd = { version = "=0.15.4", optional = true }
+glutin = { version = "=0.32.3", optional = true, default-features = false, features = ["egl"] }
 pattrns = { git = "https://github.com/renoise/pattrns.git", rev = "8505bfe09111d4123a202af5222466f55021db9f", default-features = false }
 phonic = { version = "=0.16.0", default-features = false, features = ["wav-output"] }
 hound = "=3.5.1"
+# Native file dialogs for the desktop source picker. The Linux backend is
+# explicitly enabled for Wayland/X11 builds; Windows uses the native API.
+rfd = { version = "=0.15.4", optional = true, default-features = false }
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.154"
+# Preserve exact f64 BPM/delay state across saved project roundtrips.
+serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
+# Already pinned transitively by phonic; direct access permits bounded strict decoding.
+symphonia = { version = "=0.5.5", default-features = false, features = ["wav", "pcm", "flac"] }
+# Optional experimental onset service; established FFT implementation, exact pins.
+realfft = "=3.5.0"
+rustfft = "=6.4.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { version = "=0.33.3", optional = true, default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+rfd = { version = "=0.15.4", optional = true, default-features = false, features = ["xdg-portal", "async-std"] }
 
 [features]
-desktop = ["dep:eframe", "dep:image", "dep:rfd", "realtime"]
+# Editor and offline export; no physical audio backend or audio development headers.
+desktop = ["dep:eframe", "dep:image", "dep:rfd"]
+# Full user-facing desktop with CPAL playback (platform audio libraries required).
+desktop-audio = ["desktop", "realtime"]
 realtime = ["dep:cpal"]
+# The probe exercises phonic's own output adapter; Leviathan's desktop transport
+# uses CPAL directly and does not need phonic's cpal-output feature.
 realtime-probe = ["realtime", "phonic/cpal-output"]
+# Optional Linux EGL framebuffer evidence; reuses eframe's existing glutin version.
+ui-capture = ["desktop", "dep:glutin"]
+
+[[example]]
+name = "ui_capture"
+path = "examples/ui_capture.rs"
+required-features = ["ui-capture"]
 
 [[bin]]
 name = "realtime_probe"
@@ -39,5 +61,6 @@ name = "transport_probe"
 path = "src/bin/transport_probe.rs"
 required-features = ["realtime"]
 
-[profile.release]
-strip = "symbols"
+[[bin]]
+name = "leviathan_mcp"
+path = "src/bin/leviathan_mcp.rs"

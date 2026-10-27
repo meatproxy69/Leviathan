@@ -1,7 +1,7 @@
 //! Worker-side isolated voices for step effects; the device callback never enters here.
 use crate::{
     song::{InstrumentId, TrackId},
-    song_render::{send, Command, Event, Manifest},
+    song_render::{send_with_root, Command, Event, Manifest},
     RATE,
 };
 use phonic::{generators::Sampler, GeneratorPlaybackOptions, Source, SourceTime};
@@ -19,9 +19,11 @@ struct Voice {
     sampler: Sampler,
     track: TrackId,
     column: u16,
+    root: u8,
 }
 pub(crate) struct StepAudio {
     buffers: BTreeMap<Key, Arc<phonic::AudioFileBuffer>>,
+    roots: BTreeMap<InstrumentId, u8>,
     voices: BTreeMap<usize, Voice>,
 }
 impl StepAudio {
@@ -46,12 +48,19 @@ impl StepAudio {
                 return Err("Step effects exceed 256 source variants".into());
             }
             let original = &source[&event.instrument];
+            let frames = manifest
+                .regions
+                .get(&event.instrument)
+                .map_or_else(
+                    || original.frame_count().saturating_sub(1).max(1),
+                    |region| region.end_frame.saturating_sub(region.start_frame) as usize,
+                )
+                .min(original.frame_count().saturating_sub(1).max(1));
             let buffer = if offset == 0.0 && !reverse {
                 original.clone()
             } else {
                 // AudioFileBuffer::from_file appends one silent interpolation frame.
                 // Do not reverse that sentinel into the beginning of a sample.
-                let frames = original.frame_count().saturating_sub(1).max(1);
                 let skip = ((offset * frames as f64).floor() as usize).min(frames - 1);
                 let channels = original.channel_count();
                 let length = (frames - skip + 1)
@@ -64,14 +73,21 @@ impl StepAudio {
                     return Err("Step sample variants exceed 128 MiB".into());
                 }
                 let mut data = Vec::with_capacity(length);
+                // Engine buffers for mapped instruments are already cropped to
+                // their region, so offset and reverse stay region-local here.
+                let region_start = 0usize;
                 if reverse {
                     for frame in (0..frames - skip).rev() {
                         data.extend_from_slice(
-                            &original.buffer()[frame * channels..(frame + 1) * channels],
+                            &original.buffer()[(region_start + frame) * channels
+                                ..(region_start + frame + 1) * channels],
                         );
                     }
                 } else {
-                    data.extend_from_slice(&original.buffer()[skip * channels..frames * channels]);
+                    data.extend_from_slice(
+                        &original.buffer()
+                            [(region_start + skip) * channels..(region_start + frames) * channels],
+                    );
                 }
                 data.resize(length, 0.0);
                 Arc::new(
@@ -83,6 +99,11 @@ impl StepAudio {
         }
         Ok(Self {
             buffers,
+            roots: manifest
+                .regions
+                .iter()
+                .map(|(id, region)| (*id, region.root_note))
+                .collect(),
             voices: BTreeMap::new(),
         })
     }
@@ -119,13 +140,15 @@ impl StepAudio {
                     RATE,
                 )
                 .map_err(|e| e.to_string())?;
-                send(&sampler, &event.command)?;
+                let root = self.roots.get(&event.instrument).copied().unwrap_or(60);
+                send_with_root(&sampler, &event.command, root)?;
                 self.voices.insert(
                     voice,
                     Voice {
                         sampler,
                         track: event.track,
                         column: event.column,
+                        root,
                     },
                 );
             }
@@ -138,7 +161,7 @@ impl StepAudio {
             | Command::Speed { voice, .. } => {
                 // Cold seek intentionally skips voices that started before its target.
                 if let Some(active) = self.voices.get(&voice) {
-                    send(&active.sampler, &event.command)?;
+                    send_with_root(&active.sampler, &event.command, active.root)?;
                 }
             }
         }

@@ -51,11 +51,11 @@ jobs:
           fi
 
       - name: Run tests
-        run: cargo test --locked --features desktop
+        run: cargo test --locked --features desktop-audio
 
       - name: Build desktop app and release CLI binaries
         run: >-
-          cargo build --locked --release --features desktop
+          cargo build --locked --release --features desktop-audio
           --bin leviathan
           --bin render_song
           --bin song_demo

@@ -1,13 +1,11 @@
 use aqua_pattern_core::{
-    editor::Editor,
-    project::{self, SaveMode},
+    sample_asset,
     song::*,
-    song_render::{self, Command},
+    song_render::{self, Command, Engine, Release},
     transport::{Producer, Shared},
-    RATE,
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -16,564 +14,891 @@ use std::{
 };
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Fixture {
-    song: Song,
     dir: PathBuf,
+    song: Song,
+}
+fn pattern(rows: u32) -> Pattern {
+    Pattern {
+        generation: None,
+        name: "Block".into(),
+        rows,
+        tracks: BTreeMap::new(),
+        track_aliases: BTreeMap::new(),
+    }
+}
+fn occurrence(id: u64) -> Occurrence {
+    Occurrence {
+        pattern: PatternId(id),
+        muted_tracks: BTreeSet::new(),
+        section: None,
+    }
+}
+fn note(pitch: u8, instrument: u64) -> Cell {
+    Cell {
+        note: Note::Note(pitch),
+        instrument: Some(InstrumentId(instrument)),
+        ..Cell::default()
+    }
 }
 impl Fixture {
     fn new() -> Self {
         let dir = std::env::temp_dir().join(format!(
-            "leviathan-m8-{}-{}",
+            "leviathan-arrangement-{}-{}",
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ));
         std::fs::create_dir(&dir).unwrap();
-        let path = dir.join("tone.wav");
-        let mut w = hound::WavWriter::create(
+        let path = dir.join("source.wav");
+        let mut writer = hound::WavWriter::create(
             &path,
             hound::WavSpec {
                 channels: 2,
-                sample_rate: RATE,
+                sample_rate: 44100,
                 bits_per_sample: 32,
                 sample_format: hound::SampleFormat::Float,
             },
         )
         .unwrap();
-        for i in 0..RATE * 3 {
-            let v = (i as f32 * std::f32::consts::TAU * 220.0 / RATE as f32).sin() * 0.12;
-            w.write_sample(v).unwrap();
-            w.write_sample(v * 0.8).unwrap();
+        for frame in 0..88200 {
+            writer
+                .write_sample(0.03 + (frame % 71) as f32 * 0.0001)
+                .unwrap();
+            writer.write_sample(-0.02f32).unwrap();
         }
-        w.finalize().unwrap();
+        writer.finalize().unwrap();
         let mut song = example_song();
-        for p in song.patterns.values_mut() {
-            p.rows = 4;
-            p.tracks.clear();
-        }
+        song.patterns = (1..=3).map(|id| (PatternId(id), pattern(2))).collect();
+        song.order = vec![occurrence(1), occurrence(2), occurrence(3)];
+        song.register_sample(SampleId(1), sample_asset::import(&path).unwrap().asset)
+            .unwrap();
+        song.upsert_region(
+            RegionId(1),
+            SampleRegion {
+                amp_envelope: None,
+                forward_loop: None,
+                name: "Signal".into(),
+                sample: SampleId(1),
+                start_frame: 0,
+                end_frame: 88200,
+                root_note: 60,
+            },
+        )
+        .unwrap();
         for instrument in song.instruments.values_mut() {
-            instrument.sample = Some(path.clone());
+            instrument.sample = None;
+            instrument.region = Some(RegionId(1));
         }
-        song.patterns.get_mut(&PatternId(1)).unwrap().tracks.insert(
+        Self { dir, song }
+    }
+    fn put(&mut self, p: u64, t: u64, row: u32, column: u16, cell: Cell) {
+        self.song
+            .patterns
+            .get_mut(&PatternId(p))
+            .unwrap()
+            .tracks
+            .entry(TrackId(t))
+            .or_default()
+            .entry(row)
+            .or_default()
+            .insert(column, cell);
+    }
+    fn alias(&mut self, p: u64, t: u64, source: u64, source_track: u64) {
+        self.song
+            .set_track_alias(
+                PatternId(p),
+                TrackId(t),
+                Some(TrackAlias {
+                    pattern: PatternId(source),
+                    track: TrackId(source_track),
+                }),
+            )
+            .unwrap();
+    }
+    fn mute(&mut self, occurrence: usize, track: u64) {
+        self.song
+            .set_occurrence_track_mute(occurrence, TrackId(track), true)
+            .unwrap();
+    }
+    fn kit(&mut self) {
+        let pads = (0..2)
+            .map(|slot| {
+                (
+                    PadId(u64::from(slot) + 1),
+                    DrumPad {
+                        velocity_zones: Vec::new(),
+                        slot,
+                        name: format!("Pad{slot}"),
+                        note: 36 + slot,
+                        region: Some(RegionId(1)),
+                        root_note: 60,
+                        tune_semitones: 0,
+                        gain: 1.0,
+                        pan: 0.0,
+                        mode: PadMode::OneShot,
+                        new_note: PadNewNote::Overlap,
+                        choke_group: None,
+                    },
+                )
+            })
+            .collect();
+        self.song
+            .upsert_drum_kit(
+                DrumKitId(1),
+                DrumKitInstrument {
+                    name: "Kit".into(),
+                    pads,
+                },
+            )
+            .unwrap();
+        self.song
+            .assign_kit(InstrumentId(1), Some(DrumKitId(1)))
+            .unwrap();
+    }
+}
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+fn pcm(song: &Song, block: usize) -> Vec<f32> {
+    let mut engine = Engine::new(song, None).unwrap();
+    let end = engine.manifest.musical_frames + engine.manifest.tail_frames;
+    let mut out = Vec::new();
+    let mut buffer = vec![0.; block * 2];
+    while engine.position < end {
+        let n = engine.block(&mut buffer, end).unwrap();
+        out.extend_from_slice(&buffer[..n * 2]);
+    }
+    out
+}
+fn manifest(song: &Song) -> song_render::Manifest {
+    song_render::evaluate(song, None).unwrap()
+}
+fn starts(song: &Song) -> Vec<(u64, TrackId, usize, u8, f32)> {
+    manifest(song)
+        .events
+        .iter()
+        .filter_map(|e| {
+            if let Command::On {
+                voice,
+                pitch,
+                volume,
+                ..
+            } = e.command
+            {
+                Some((e.frame, e.track, voice, pitch, volume))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+#[test]
+fn chained_cross_track_aliases_equal_materialized_pcm_and_keep_target_identity() {
+    let mut f = Fixture::new();
+    f.put(1, 1, 0, 0, note(60, 1));
+    f.alias(2, 2, 1, 1);
+    f.alias(3, 3, 2, 2);
+    let chain = f
+        .song
+        .resolve_track_chain(PatternId(3), TrackId(3))
+        .unwrap();
+    assert_eq!(chain.len(), 3);
+    assert_eq!(
+        starts(&f.song).iter().map(|s| s.1).collect::<Vec<_>>(),
+        vec![TrackId(1), TrackId(2), TrackId(3)]
+    );
+    let m = manifest(&f.song);
+    assert_eq!(m.schema, 7);
+    assert_eq!(m.arrangement.as_ref().unwrap().aliases.len(), 2);
+    let mut unique = f.song.clone();
+    unique.make_track_unique(PatternId(2), TrackId(2)).unwrap();
+    unique.make_track_unique(PatternId(3), TrackId(3)).unwrap();
+    assert_eq!(m.events, manifest(&unique).events);
+    assert_eq!(pcm(&f.song, 512), pcm(&unique, 512));
+    assert_eq!(pcm(&f.song, 1), pcm(&f.song, 37));
+    assert_eq!(pcm(&f.song, 37), pcm(&f.song, 512));
+    f.put(1, 1, 0, 0, note(65, 1));
+    assert_eq!(
+        starts(&f.song).iter().map(|s| s.3).collect::<Vec<_>>(),
+        vec![65, 65, 65]
+    );
+    assert_eq!(starts(&unique)[1].3, 60);
+}
+#[test]
+fn alias_target_memory_does_not_leak_from_source_and_repeated_blocks_share_only_content() {
+    let mut f = Fixture::new();
+    f.put(1, 1, 0, 0, note(60, 1));
+    f.put(1, 2, 0, 0, note(72, 2));
+    f.put(
+        2,
+        1,
+        0,
+        0,
+        Cell {
+            note: Note::Note(64),
+            ..Cell::default()
+        },
+    );
+    f.alias(2, 2, 2, 1);
+    f.song.order = vec![occurrence(1), occurrence(2), occurrence(2)];
+    let m = manifest(&f.song);
+    let on: Vec<_> = m
+        .events
+        .iter()
+        .filter(|e| matches!(e.command, Command::On { .. }))
+        .collect();
+    assert_eq!(
+        on.iter().map(|e| e.instrument).collect::<Vec<_>>(),
+        vec![
+            InstrumentId(1),
+            InstrumentId(2),
+            InstrumentId(1),
+            InstrumentId(2),
+            InstrumentId(1),
+            InstrumentId(2)
+        ]
+    );
+    f.song.order = vec![occurrence(2)];
+    assert!(song_render::evaluate(&f.song, None)
+        .unwrap_err()
+        .contains("selected instrument"));
+}
+#[test]
+fn invalid_alias_graphs_lengths_columns_shadow_content_and_dangling_deletion_are_atomic() {
+    let mut f = Fixture::new();
+    f.put(1, 1, 0, 0, note(60, 1));
+    f.alias(2, 2, 1, 1);
+    let before = f.song.clone();
+    assert!(f
+        .song
+        .set_track_alias(
+            PatternId(1),
+            TrackId(1),
+            Some(TrackAlias {
+                pattern: PatternId(2),
+                track: TrackId(2)
+            })
+        )
+        .is_err());
+    assert_eq!(before, f.song);
+    let mut bad = before.clone();
+    bad.patterns.get_mut(&PatternId(1)).unwrap().rows = 3;
+    assert!(bad.validate().is_err());
+    let mut bad = before.clone();
+    bad.tracks.get_mut(&TrackId(1)).unwrap().note_columns = 3;
+    assert!(bad.validate().is_err());
+    let mut bad = before.clone();
+    bad.patterns.remove(&PatternId(1));
+    assert!(bad.validate().is_err());
+    let mut bad = before.clone();
+    bad.patterns
+        .get_mut(&PatternId(2))
+        .unwrap()
+        .tracks
+        .insert(TrackId(2), BTreeMap::new());
+    assert!(bad.validate().is_err());
+    let mut cycle = before.clone();
+    cycle
+        .patterns
+        .get_mut(&PatternId(1))
+        .unwrap()
+        .tracks
+        .remove(&TrackId(1));
+    cycle
+        .patterns
+        .get_mut(&PatternId(1))
+        .unwrap()
+        .track_aliases
+        .insert(
+            TrackId(1),
+            TrackAlias {
+                pattern: PatternId(2),
+                track: TrackId(2),
+            },
+        );
+    assert!(cycle.validate().unwrap_err().contains("cycle"));
+    assert!(f
+        .song
+        .require_local_track(PatternId(2), TrackId(2))
+        .unwrap_err()
+        .contains("Make unique"));
+    f.song.clone_pattern(PatternId(2), PatternId(4)).unwrap();
+    assert!(f.song.patterns[&PatternId(4)].track_aliases.is_empty());
+    assert_eq!(
+        f.song.patterns[&PatternId(4)].tracks[&TrackId(2)],
+        f.song.patterns[&PatternId(1)].tracks[&TrackId(1)]
+    );
+    f.song
+        .set_track_alias(PatternId(2), TrackId(2), None)
+        .unwrap();
+    assert!(f
+        .song
+        .resolved_track(PatternId(2), TrackId(2))
+        .unwrap()
+        .is_none());
+}
+#[test]
+fn depth_and_alias_expansion_budgets_cover_unused_graphs_before_render() {
+    let mut f = Fixture::new();
+    f.put(1, 1, 0, 0, note(60, 1));
+    for id in 4..=35 {
+        let mut p = pattern(2);
+        p.track_aliases.insert(
+            TrackId(1),
+            TrackAlias {
+                pattern: PatternId(if id == 4 { 1 } else { id - 1 }),
+                track: TrackId(1),
+            },
+        );
+        f.song.patterns.insert(PatternId(id), p);
+    }
+    f.song.validate().unwrap();
+    let mut too_long = pattern(2);
+    too_long.track_aliases.insert(
+        TrackId(1),
+        TrackAlias {
+            pattern: PatternId(35),
+            track: TrackId(1),
+        },
+    );
+    f.song.patterns.insert(PatternId(36), too_long);
+    assert!(f.song.validate().unwrap_err().contains("32 links"));
+    f.song.patterns.retain(|id, _| id.0 <= 3);
+    f.song.patterns.get_mut(&PatternId(1)).unwrap().rows = 65536;
+    for row in 0..32769 {
+        f.put(1, 1, row, 0, Cell::default());
+    }
+    for id in [2, 3] {
+        let p = f.song.patterns.get_mut(&PatternId(id)).unwrap();
+        p.rows = 65536;
+        p.track_aliases.insert(
+            TrackId(1),
+            TrackAlias {
+                pattern: PatternId(1),
+                track: TrackId(1),
+            },
+        );
+    }
+    assert!(f
+        .song
+        .validate()
+        .unwrap_err()
+        .contains("65536 resolved cells"));
+}
+#[test]
+fn mute_releases_at_boundary_ignores_parameters_and_preserves_prior_selection() {
+    let mut f = Fixture::new();
+    f.put(
+        1,
+        1,
+        0,
+        0,
+        Cell {
+            velocity: Some(0.3),
+            ..note(60, 1)
+        },
+    );
+    f.put(1, 2, 0, 0, note(67, 2));
+    f.put(
+        2,
+        1,
+        0,
+        0,
+        Cell {
+            instrument: Some(InstrumentId(3)),
+            velocity: Some(0.9),
+            pan: Some(1.0),
+            ..Cell::default()
+        },
+    );
+    f.put(
+        3,
+        1,
+        0,
+        0,
+        Cell {
+            note: Note::Note(64),
+            ..Cell::default()
+        },
+    );
+    f.mute(1, 1);
+    let m = manifest(&f.song);
+    let off = m
+        .events
+        .iter()
+        .find(|e| {
+            matches!(
+                e.command,
+                Command::Off {
+                    reason: Release::TrackMute,
+                    ..
+                }
+            )
+        })
+        .unwrap();
+    assert_eq!(off.frame, 12000);
+    assert_eq!(off.track, TrackId(1));
+    let last = m
+        .events
+        .iter()
+        .find(|e| e.frame == 24000 && matches!(e.command, Command::On { .. }))
+        .unwrap();
+    assert_eq!(last.instrument, InstrumentId(1));
+    assert!(matches!(
+        last.command,
+        Command::On {
+            volume: 0.3,
+            pan: 0.0,
+            ..
+        }
+    ));
+    let data = pcm(&f.song, 512);
+    assert!(data[24000..24200].iter().any(|s| *s != 0.)); // declick, not hard zero
+    let mut reference = f.song.clone();
+    reference.order[1].muted_tracks.clear();
+    reference
+        .patterns
+        .get_mut(&PatternId(2))
+        .unwrap()
+        .tracks
+        .clear();
+    reference
+        .patterns
+        .get_mut(&PatternId(2))
+        .unwrap()
+        .tracks
+        .insert(
             TrackId(1),
             BTreeMap::from([(
                 0,
                 BTreeMap::from([(
                     0,
                     Cell {
-                        note: Note::Note(60),
-                        instrument: Some(InstrumentId(1)),
+                        effects: StepEffects {
+                            release: Some(0.0),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     },
                 )]),
             )]),
         );
-        Self { song, dir }
+    assert_eq!(data, pcm(&reference, 512));
+}
+#[test]
+fn all_muted_missing_assets_render_exact_silence_without_source_io_but_blank_song_still_errors() {
+    let mut f = Fixture::new();
+    f.put(1, 1, 0, 0, note(60, 1));
+    f.mute(0, 1);
+    f.song.samples.get_mut(&SampleId(1)).unwrap().path = f.dir.join("missing.wav");
+    let m = manifest(&f.song);
+    assert!(m.events.is_empty());
+    assert!(m.assets.is_empty());
+    assert!(m.regions.is_empty());
+    assert!(m.pad_voices.is_empty());
+    assert_eq!(m.musical_frames, 36000);
+    let data = pcm(&f.song, 37);
+    assert_eq!(data.len(), (36000 + 24000) * 2);
+    assert!(data.iter().all(|s| *s == 0.));
+    let (stats, _) = song_render::export(&f.song, None, &f.dir.join("silence.wav")).unwrap();
+    assert_eq!(stats.peak, 0.);
+    assert_eq!(stats.energy, 0.);
+    f.song.order[0].muted_tracks.clear();
+    assert!(Engine::new(&f.song, None).is_err());
+    f.song
+        .patterns
+        .get_mut(&PatternId(1))
+        .unwrap()
+        .tracks
+        .clear();
+    f.mute(0, 1);
+    assert!(song_render::evaluate(&f.song, None)
+        .unwrap_err()
+        .contains("no note triggers"));
+}
+#[test]
+fn mute_cancels_only_own_pending_phrase_children_and_late_controls() {
+    let mut f = Fixture::new();
+    f.song.phrases.insert(
+        PhraseId(1),
+        Phrase {
+            name: "Phrase".into(),
+            instrument: InstrumentId(1),
+            rows: 8,
+            lines_per_beat: 4,
+            note_columns: 1,
+            root_note: 60,
+            cells: (0..8)
+                .map(|row| (row, BTreeMap::from([(0, note(60, 1))])))
+                .collect(),
+        },
+    );
+    let trigger = Cell {
+        phrase: Some(PhraseTrigger {
+            phrase: PhraseId(1),
+            cycles: 2,
+        }),
+        ..note(60, 1)
+    };
+    f.put(1, 1, 0, 0, trigger.clone());
+    f.put(1, 2, 0, 0, trigger);
+    f.mute(1, 1);
+    let m = manifest(&f.song);
+    assert!(m
+        .events
+        .iter()
+        .filter(|e| e.track == TrackId(1) && e.frame >= 12000)
+        .all(|e| matches!(
+            e.command,
+            Command::Off {
+                reason: Release::TrackMute,
+                ..
+            }
+        )));
+    assert!(m.events.iter().any(|e| e.track == TrackId(2)
+        && e.frame == 12000
+        && matches!(e.command, Command::On { .. })));
+    assert!(m.events.iter().any(|e| e.track == TrackId(2)
+        && e.frame == 30000
+        && matches!(e.command, Command::On { .. })));
+    f.alias(2, 3, 1, 2);
+    let mut reference = f.song.clone();
+    reference
+        .make_track_unique(PatternId(2), TrackId(3))
+        .unwrap();
+    assert_eq!(manifest(&f.song).events, manifest(&reference).events);
+    assert_eq!(pcm(&f.song, 512), pcm(&reference, 512));
+}
+#[test]
+fn mute_releases_all_held_oneshots_even_dropped_pointers_and_preserves_other_track_same_instrument()
+{
+    let mut f = Fixture::new();
+    f.kit();
+    f.put(1, 1, 0, 0, note(36, 1));
+    f.put(1, 1, 1, 0, note(37, 1));
+    f.put(1, 2, 0, 0, note(36, 1));
+    f.mute(1, 1);
+    let m = manifest(&f.song);
+    let muted: Vec<_> = m
+        .events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.command,
+                Command::Off {
+                    reason: Release::TrackMute,
+                    ..
+                }
+            )
+        })
+        .collect();
+    assert_eq!(muted.len(), 2);
+    assert!(muted
+        .iter()
+        .all(|e| e.track == TrackId(1) && e.frame == 12000));
+    let other = m
+        .events
+        .iter()
+        .find(|e| e.track == TrackId(2) && matches!(e.command, Command::On { .. }))
+        .unwrap();
+    let Command::On { voice, .. } = other.command else {
+        unreachable!()
+    };
+    assert!(!m
+        .events
+        .iter()
+        .any(|e| matches!(e.command,Command::Off{voice:v,..}if v==voice) && e.frame < 36000));
+    // Logical pointer was already cleared by OFF, but the OneShot still releases.
+    f.put(
+        1,
+        1,
+        1,
+        0,
+        Cell {
+            note: Note::Off,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        manifest(&f.song)
+            .events
+            .iter()
+            .filter(|e| matches!(
+                e.command,
+                Command::Off {
+                    reason: Release::TrackMute,
+                    ..
+                }
+            ))
+            .count(),
+        1
+    );
+    assert!(pcm(&f.song, 512).iter().all(|v| v.is_finite()));
+}
+#[test]
+fn rounded_prior_row_muted_spill_cannot_choke_other_track_or_latch_parameters() {
+    let mut f = Fixture::new();
+    f.kit();
+    for pad in f
+        .song
+        .drum_kits
+        .get_mut(&DrumKitId(1))
+        .unwrap()
+        .pads
+        .values_mut()
+    {
+        pad.choke_group = Some(1);
     }
-    fn alias(&mut self) {
-        self.song
+    f.put(1, 2, 0, 0, note(36, 1));
+    f.put(
+        1,
+        1,
+        0,
+        0,
+        Cell {
+            instrument: Some(InstrumentId(2)),
+            velocity: Some(0.2),
+            ..Default::default()
+        },
+    );
+    f.put(
+        1,
+        1,
+        1,
+        0,
+        Cell {
+            delay: Some(0.999999),
+            velocity: Some(0.9),
+            ..note(37, 1)
+        },
+    );
+    f.mute(1, 1);
+    f.put(
+        3,
+        1,
+        0,
+        0,
+        Cell {
+            note: Note::Note(60),
+            ..Default::default()
+        },
+    );
+    let m = manifest(&f.song);
+    assert_eq!(m.pad_voices.len(), 1);
+    assert!(!m.events.iter().any(|e| matches!(
+        e.command,
+        Command::Off {
+            reason: Release::Choke,
+            ..
+        }
+    )));
+    let last = m
+        .events
+        .iter()
+        .find(|e| e.frame == 24000 && matches!(e.command, Command::On { .. }))
+        .unwrap();
+    assert_eq!(last.instrument, InstrumentId(2));
+    assert!(matches!(last.command, Command::On { volume: 0.2, .. }));
+    // Reference removes the delayed spill entirely, retaining same boundaries.
+    let mut reference = f.song.clone();
+    reference
+        .patterns
+        .get_mut(&PatternId(1))
+        .unwrap()
+        .tracks
+        .get_mut(&TrackId(1))
+        .unwrap()
+        .remove(&1);
+    assert_eq!(pcm(&f.song, 512), pcm(&reference, 512));
+}
+#[test]
+fn unused_aliases_are_audibly_transparent_and_serde_defaults_preserve_old_shape() {
+    let mut f = Fixture::new();
+    f.put(1, 1, 0, 0, note(60, 1));
+    f.song.order = vec![occurrence(1)];
+    let before = manifest(&f.song);
+    let bytes = pcm(&f.song, 512);
+    f.alias(2, 2, 1, 1);
+    assert_eq!(before, manifest(&f.song));
+    assert_eq!(bytes, pcm(&f.song, 512));
+    let json = serde_json::to_string(&f.song).unwrap();
+    assert_eq!(f.song, serde_json::from_str::<Song>(&json).unwrap());
+    let mut legacy = f.song.clone();
+    legacy.patterns.remove(&PatternId(2));
+    let json = serde_json::to_string(&legacy).unwrap();
+    assert!(!json.contains("track_aliases"));
+    assert!(!json.contains("muted_tracks"));
+}
+#[test]
+fn mute_metadata_moves_with_occurrence_and_repeat_is_fresh_unmuted() {
+    let mut f = Fixture::new();
+    f.put(1, 1, 0, 0, note(60, 1));
+    f.mute(1, 1);
+    f.song.move_occurrence(0, 1).unwrap();
+    assert_eq!(f.song.order[0].pattern, PatternId(2));
+    assert!(f.song.order[0].muted_tracks.contains(&TrackId(1)));
+    f.song.append_repeat(PatternId(2)).unwrap();
+    assert!(f.song.order.last().unwrap().muted_tracks.is_empty());
+    let before = f.song.clone();
+    assert!(f.song.move_occurrence(99, 0).is_err());
+    assert_eq!(before, f.song);
+}
+#[test]
+fn alias_expanded_starts_obey_existing_budget_and_export_cleanup() {
+    let mut f = Fixture::new();
+    f.song.patterns.get_mut(&PatternId(1)).unwrap().rows = 1025;
+    for row in 0..1025 {
+        f.put(1, 1, row, 0, note(60, 1));
+    }
+    f.song.patterns.get_mut(&PatternId(2)).unwrap().rows = 1025;
+    f.alias(2, 2, 1, 1);
+    f.song.order = vec![occurrence(1), occurrence(2)];
+    let output = f.dir.join("overbudget.wav");
+    assert!(song_render::export(&f.song, None, &output)
+        .unwrap_err()
+        .contains("2048"));
+    assert!(!output.exists());
+    assert!(!output.with_extension("events.json").exists());
+}
+#[test]
+fn alias_mute_streaming_and_export_share_events_and_loop_reset() {
+    let mut f = Fixture::new();
+    f.put(1, 1, 0, 0, note(60, 1));
+    f.alias(2, 1, 1, 1);
+    f.mute(1, 1);
+    f.alias(3, 1, 1, 1);
+    let shared = Arc::new(Shared::default());
+    let mut producer = Producer::new(&f.song, None, shared.clone()).unwrap();
+    let mut result = Vec::new();
+    let expected = pcm(&f.song, 512);
+    while result.len() < expected.len() {
+        producer.pump_until_buffered().unwrap();
+        let mut buffer = vec![0.; 1024.min(expected.len() - result.len())];
+        shared.fill(&mut buffer);
+        result.extend_from_slice(&buffer);
+    }
+    assert_eq!(result, expected);
+    let shared = Arc::new(Shared::default());
+    shared.set_loop(true, 36000);
+    let mut producer = Producer::new(&f.song, None, shared.clone()).unwrap();
+    let mut looped = Vec::new();
+    while looped.len() < 144000 {
+        producer.pump_until_buffered().unwrap();
+        let mut buffer = [0.; 512];
+        shared.fill(&mut buffer);
+        looped.extend(buffer);
+    }
+    assert_eq!(&looped[..72000], &expected[..72000]);
+    assert_eq!(&looped[72000..144000], &expected[..72000]);
+    shared.stop();
+    producer.pump_until_buffered().unwrap();
+    let mut silence = [1.; 512];
+    shared.fill(&mut silence);
+    assert!(silence.iter().all(|v| *v == 0.));
+    let mut cold = Engine::new(&f.song, None).unwrap();
+    cold.cold_seek(12000).unwrap();
+    let mut buffer = [1.; 74];
+    while cold.position < 24000 {
+        let n = cold.block(&mut buffer, 24000).unwrap();
+        assert!(buffer[..n * 2].iter().all(|v| *v == 0.));
+    }
+    let output = f.dir.join("arrangement.wav");
+    let (_, m) = song_render::export(&f.song, None, &output).unwrap();
+    assert_eq!(m, manifest(&f.song));
+    let audio: Vec<f32> = hound::WavReader::open(output)
+        .unwrap()
+        .samples::<f32>()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(audio, expected);
+}
+
+#[test]
+fn sparse_empty_row_alias_amplification_is_bounded_before_mapping_scan() {
+    let mut f = Fixture::new();
+    for p in f.song.patterns.values_mut() {
+        p.rows = 65536;
+    }
+    f.song
+        .patterns
+        .get_mut(&PatternId(1))
+        .unwrap()
+        .tracks
+        .insert(
+            TrackId(1),
+            (0..65536).map(|row| (row, BTreeMap::new())).collect(),
+        );
+    for id in [2, 3] {
+        f.song
             .patterns
-            .get_mut(&PatternId(2))
+            .get_mut(&PatternId(id))
             .unwrap()
-            .aliases
+            .track_aliases
             .insert(
-                TrackId(2),
-                BlockRef {
+                TrackId(1),
+                TrackAlias {
                     pattern: PatternId(1),
                     track: TrackId(1),
                 },
             );
     }
-    fn render(&self, name: &str) -> (Vec<f32>, song_render::Manifest) {
-        let path = self.dir.join(name);
-        let (_, m) = song_render::export(&self.song, None, &path).unwrap();
-        let samples = hound::WavReader::open(path)
-            .unwrap()
-            .into_samples::<f32>()
-            .map(Result::unwrap)
-            .collect();
-        (samples, m)
-    }
-    fn editor(&self) -> Editor {
-        let mut e = Editor::default();
-        e.replace_document(self.song.clone()).unwrap();
-        e.edit_mode = true;
-        e
-    }
-}
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.dir).unwrap();
-    }
-}
-#[test]
-fn alias_audio_equals_independently_materialized_content_and_routes_to_destination() {
-    let mut f = Fixture::new();
-    f.alias();
-    let (actual, m) = f.render("alias.wav");
-    assert_eq!(m.schema, 4);
-    assert!(!m.arrangement.as_ref().unwrap().isolated_voices);
-    assert!(m
-        .events
-        .iter()
-        .any(|e| e.track == TrackId(2) && matches!(e.command, Command::On { .. })));
-    let source = f.song.patterns[&PatternId(1)].tracks[&TrackId(1)].clone();
-    let p = f.song.patterns.get_mut(&PatternId(2)).unwrap();
-    p.aliases.clear();
-    p.tracks.insert(TrackId(2), source);
-    let (expected, base) = f.render("local.wav");
-    assert_eq!(actual, expected);
-    assert_eq!(m.events, base.events);
-    assert_eq!(base.schema, 1);
-}
-#[test]
-fn alias_chain_validates_unused_blocks_cycles_dangling_and_shape_mismatches() {
-    let mut f = Fixture::new();
-    f.alias();
-    f.song
-        .patterns
-        .get_mut(&PatternId(2))
-        .unwrap()
-        .aliases
-        .insert(
-            TrackId(3),
-            BlockRef {
-                pattern: PatternId(2),
-                track: TrackId(2),
-            },
-        );
-    assert_eq!(
-        f.song.block_source(PatternId(2), TrackId(3)).unwrap(),
-        BlockRef {
-            pattern: PatternId(1),
-            track: TrackId(1)
-        }
-    );
-    let valid = f.song.clone();
-    for source in [
-        BlockRef {
-            pattern: PatternId(2),
-            track: TrackId(3),
-        },
-        BlockRef {
-            pattern: PatternId(999),
-            track: TrackId(1),
-        },
-        BlockRef {
-            pattern: PatternId(1),
-            track: TrackId(999),
-        },
-    ] {
-        f.song = valid.clone();
-        f.song
-            .patterns
-            .get_mut(&PatternId(1))
-            .unwrap()
-            .tracks
-            .remove(&TrackId(1));
-        f.song
-            .patterns
-            .get_mut(&PatternId(1))
-            .unwrap()
-            .aliases
-            .insert(TrackId(1), source);
-        assert!(f.song.validate().is_err());
-    }
-    f.song = valid.clone();
-    f.song.patterns.get_mut(&PatternId(2)).unwrap().rows = 8;
-    assert!(f.song.validate().is_err());
-    f.song = valid.clone();
-    f.song.tracks.get_mut(&TrackId(2)).unwrap().note_columns = 1;
-    assert!(f.song.validate().is_err());
-    f.song = valid;
-    f.song
-        .patterns
-        .get_mut(&PatternId(2))
-        .unwrap()
-        .tracks
-        .insert(TrackId(2), BTreeMap::new());
-    assert!(f.song.validate().is_err());
-}
-#[test]
-fn editing_alias_updates_source_repeats_and_undo_then_unique_detaches() {
-    let mut f = Fixture::new();
-    f.alias();
-    let mut e = f.editor();
-    e.select(1, TrackId(2)).unwrap();
-    let original = e.song.clone();
-    let mut cell = e.cell();
-    cell.velocity = Some(0.3);
-    e.set_cell(cell.clone()).unwrap();
-    e.select(0, TrackId(1)).unwrap();
-    assert_eq!(e.cell(), cell);
-    e.undo();
-    assert_eq!(e.song, original);
-    e.redo();
-    e.select(1, TrackId(2)).unwrap();
-    e.unique_block(false).unwrap();
-    let detached = e.cell();
-    let mut changed = detached.clone();
-    changed.note = Note::Note(72);
-    e.set_cell(changed).unwrap();
-    e.select(0, TrackId(1)).unwrap();
-    assert_eq!(e.cell(), detached);
-    e.select(1, TrackId(2)).unwrap();
-    e.unique_block(true).unwrap();
-    assert_eq!(e.cell(), Cell::default());
-    assert!(!e.song.patterns[&PatternId(1)].tracks.is_empty());
-}
-#[test]
-fn independent_pattern_clone_materializes_chained_aliases() {
-    let mut f = Fixture::new();
-    f.alias();
-    f.song.clone_pattern(PatternId(2), PatternId(3)).unwrap();
-    assert!(f.song.patterns[&PatternId(3)].aliases.is_empty());
-    let copied = f.song.patterns[&PatternId(3)].tracks[&TrackId(2)].clone();
-    f.song
-        .patterns
-        .get_mut(&PatternId(1))
-        .unwrap()
-        .tracks
-        .clear();
-    assert_eq!(f.song.patterns[&PatternId(3)].tracks[&TrackId(2)], copied);
-}
-#[test]
-fn section_repeat_shares_but_variation_copies_each_pattern_once_and_preserves_mutes() {
-    let mut f = Fixture::new();
-    f.alias();
-    let mut e = f.editor();
-    e.mark_section("Verse").unwrap();
-    e.select(1, TrackId(2)).unwrap();
-    e.mute_track(true).unwrap();
-    e.append_section(false).unwrap();
-    assert_eq!(e.song.order.len(), 6);
-    assert_eq!(e.song.order[3].pattern, PatternId(1));
-    assert!(e.song.order[4].muted_tracks.contains(&TrackId(2)));
-    assert_ne!(
-        e.song.order[0].section.as_ref().unwrap().id,
-        e.song.order[3].section.as_ref().unwrap().id
-    );
-    e.select(0, TrackId(1)).unwrap();
-    e.append_section(true).unwrap();
-    assert_eq!(e.song.order.len(), 9);
-    let copy = e.song.order[6].pattern;
-    assert_ne!(copy, PatternId(1));
-    assert_eq!(e.song.order[8].pattern, copy);
-    assert!(e.song.patterns[&e.song.order[7].pattern].aliases.is_empty());
-    e.set_cell(Cell::default()).unwrap();
-    assert!(!e.song.patterns[&PatternId(1)].tracks.is_empty());
-    e.undo();
-    e.undo();
-    assert_eq!(e.song.order.len(), 6);
-    e.redo();
-    assert_eq!(e.song.order.len(), 9);
-}
-#[test]
-fn section_ranges_follow_markers_and_invalid_edits_are_atomic() {
-    let f = Fixture::new();
-    let mut e = f.editor();
-    assert_eq!(e.song.section_range(1).unwrap(), 0..3);
-    e.select(2, TrackId(1)).unwrap();
-    e.mark_section("Chorus").unwrap();
-    assert_eq!(e.song.section_range(1).unwrap(), 0..2);
-    assert_eq!(e.song.section_range(2).unwrap(), 2..3);
-    let before = e.song.clone();
-    assert!(e.mark_section(&"x".repeat(65)).is_err());
-    assert_eq!(e.song, before);
-    e.move_occurrence(-1).unwrap();
-    assert_eq!(e.song.section_range(2).unwrap(), 1..3);
-    e.mark_section("").unwrap();
-    assert_eq!(e.song.section_range(2).unwrap(), 0..3);
-    e.edit_mode = false;
-    assert!(e.mute_track(true).is_err());
-    assert!(e.unique_block(true).is_err());
-    assert!(e.append_section(true).is_err());
-    assert!(e
-        .alias_block(BlockRef {
-            pattern: PatternId(2),
-            track: TrackId(1)
-        })
-        .is_err());
-}
-#[test]
-fn section_and_mute_references_and_copy_limit_are_validated() {
-    let mut f = Fixture::new();
-    f.song.order[0].section = Some(Section {
-        id: SectionId(1),
-        name: "Verse".into(),
-    });
-    f.song.order[1].section = f.song.order[0].section.clone();
-    assert!(f.song.validate().is_err());
-    f.song.order[1].section = None;
-    f.song.order[1].muted_tracks.insert(TrackId(99));
-    assert!(f.song.validate().is_err());
-    f.song.order[1].muted_tracks.clear();
-    f.song.order.resize(4096, Occurrence::new(PatternId(1)));
-    let mut e = f.editor();
-    let before = e.song.clone();
-    assert!(e.append_section(false).is_err());
-    assert!(e.append(false).is_err());
-    assert_eq!(e.song, before);
-}
-#[test]
-fn muted_occurrence_cuts_sustained_audio_and_unmute_requires_a_new_note() {
-    let mut f = Fixture::new();
-    f.song.order[1].muted_tracks.insert(TrackId(1));
-    let (sound, m) = f.render("mute.wav");
-    assert!(sound[..48000].iter().any(|v| *v != 0.0));
-    assert!(sound[48000..96000].iter().all(|v| *v == 0.0));
-    assert!(sound[96000..144000].iter().any(|v| *v != 0.0));
-    assert!(m
-        .events
-        .iter()
-        .any(|e| e.frame == 24000 && e.track == TrackId(1) && e.command == Command::Cut));
-    f.song.order[2] = Occurrence::new(PatternId(2));
-    let (sound, _) = f.render("no-resume.wav");
-    assert!(sound[48000..].iter().all(|v| *v == 0.0));
-}
-#[test]
-fn mute_removes_phrase_future_events_and_polyphonic_release_tails_at_boundary() {
-    let mut f = Fixture::new();
-    let mut phrase = Phrase {
-        rows: 16,
-        note_columns: 2,
-        ..Default::default()
-    };
-    for row in [0, 6, 10] {
-        phrase.cells.insert(
-            row,
-            BTreeMap::from([
-                (
-                    0,
-                    Cell {
-                        note: Note::Note(60),
-                        ..Default::default()
-                    },
-                ),
-                (
-                    1,
-                    Cell {
-                        note: Note::Note(67),
-                        ..Default::default()
-                    },
-                ),
-            ]),
-        );
-    }
-    f.song
-        .instruments
-        .get_mut(&InstrumentId(1))
-        .unwrap()
-        .phrases
-        .insert(PhraseId(1), phrase);
-    f.song
-        .patterns
-        .get_mut(&PatternId(1))
-        .unwrap()
-        .tracks
-        .get_mut(&TrackId(1))
-        .unwrap()
-        .get_mut(&0)
-        .unwrap()
-        .get_mut(&0)
-        .unwrap()
-        .phrase = Some(PhraseId(1));
-    f.song.order[1].muted_tracks.insert(TrackId(1));
-    let (sound, m) = f.render("phrase-mute.wav");
-    assert!(sound[48000..96000].iter().all(|v| *v == 0.0));
-    assert!(!m
-        .events
-        .iter()
-        .any(|e| (24000..48000).contains(&e.frame) && matches!(e.command, Command::On { .. })));
-}
-#[test]
-fn all_muted_song_exports_silence_without_loading_unassigned_samples() {
-    let mut f = Fixture::new();
-    for o in &mut f.song.order {
-        o.muted_tracks.extend(f.song.track_order.iter().copied());
-    }
-    for i in f.song.instruments.values_mut() {
-        i.sample = None;
-    }
-    let (sound, m) = f.render("silent.wav");
-    assert!(sound.iter().all(|v| *v == 0.0));
-    assert!(m.assets.is_empty());
-}
-#[test]
-fn section_only_keeps_audio_and_original_dsp_path_and_legacy_json_has_no_new_fields() {
-    let mut f = Fixture::new();
-    let old = serde_json::to_string(&f.song).unwrap();
-    assert!(!old.contains("aliases"));
-    assert!(!old.contains("section"));
-    assert!(!old.contains("muted_tracks"));
-    let (original, m) = f.render("original.wav");
-    assert_eq!(m.schema, 1);
-    assert!(m.arrangement.is_none());
-    f.song.order[0].section = Some(Section {
-        id: SectionId(1),
-        name: "Verse".into(),
-    });
-    let (sound, m) = f.render("section.wav");
-    assert_eq!(sound, original);
-    assert!(!m.arrangement.unwrap().isolated_voices);
-}
-#[test]
-fn arrangement_project_roundtrip_and_streaming_match_offline() {
-    let mut f = Fixture::new();
-    f.alias();
-    f.song.order[1].muted_tracks.insert(TrackId(1));
-    f.song.order[0].section = Some(Section {
-        id: SectionId(1),
-        name: "Verse".into(),
-    });
-    let path = f.dir.join("song.json");
-    project::save(&f.song, &path, SaveMode::CreateNew).unwrap();
-    let (opened, _) = project::load(&path).unwrap();
-    assert_eq!(opened, f.song);
-    let (expected, _) = f.render("offline.wav");
-    let state = Arc::new(Shared::default());
-    let mut p = Producer::new(&opened, None, state.clone()).unwrap();
-    let mut got = Vec::new();
-    for _ in 0..2000 {
-        for _ in 0..8 {
-            p.pump().unwrap();
-        }
-        let mut out = [0.0; 512];
-        state.fill(&mut out);
-        got.extend_from_slice(&out);
-        if state.ended.load(Ordering::Relaxed) {
-            break;
-        }
-    }
-    assert!(state.ended.load(Ordering::Relaxed));
-    assert_eq!(&got[..expected.len()], expected);
-    state.stop();
-    let mut out = [1.0; 512];
-    state.fill(&mut out);
-    assert!(out.iter().all(|v| *v == 0.0));
+    assert!(f.song.validate().unwrap_err().contains("row containers"));
 }
 
 #[test]
-fn alias_phrase_and_effects_match_local_rendering_with_isolated_voices() {
+fn ordered_alias_default_cell_work_is_bounded_and_muted_explicit_pad_refs_are_protected() {
     let mut f = Fixture::new();
-    let mut phrase = Phrase {
-        rows: 4,
-        ..Default::default()
-    };
-    phrase.cells.insert(
-        0,
-        BTreeMap::from([(
-            0,
-            Cell {
-                note: Note::Note(60),
-                effects: StepEffects {
-                    retrigger: Some(3),
-                    cut: Some(0.7),
-                    reverse: true,
-                    offset: Some(0.1),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        )]),
-    );
-    f.song
-        .instruments
-        .get_mut(&InstrumentId(1))
-        .unwrap()
-        .phrases
-        .insert(PhraseId(1), phrase);
-    f.song
-        .patterns
-        .get_mut(&PatternId(1))
-        .unwrap()
-        .tracks
-        .get_mut(&TrackId(1))
-        .unwrap()
-        .get_mut(&0)
-        .unwrap()
-        .get_mut(&0)
-        .unwrap()
-        .phrase = Some(PhraseId(1));
-    f.alias();
-    let (actual, m) = f.render("phrase-alias.wav");
-    assert!(m.arrangement.as_ref().unwrap().isolated_voices);
-    let source = f.song.patterns[&PatternId(1)].tracks[&TrackId(1)].clone();
-    let p = f.song.patterns.get_mut(&PatternId(2)).unwrap();
-    p.aliases.clear();
-    p.tracks.insert(TrackId(2), source);
-    let (expected, base) = f.render("phrase-local.wav");
-    assert_eq!(actual, expected);
-    assert_eq!(m.events, base.events);
-}
-#[test]
-fn repeated_mute_variants_have_correct_positions_and_snapshot_is_immutable() {
-    let mut f = Fixture::new();
-    f.song.order = vec![Occurrence::new(PatternId(1)); 4];
-    f.song.order[1].muted_tracks.insert(TrackId(1));
-    f.song.order[3].muted_tracks.insert(TrackId(1));
-    let mut engine = song_render::Engine::new(&f.song, None).unwrap();
-    let m = engine.manifest.clone();
-    assert!(m
-        .events
-        .iter()
-        .any(|e| e.frame == 24000 && e.command == Command::Cut));
-    assert!(m
-        .events
-        .iter()
-        .any(|e| e.frame == 72000 && e.command == Command::Cut));
+    for row in 0..2 {
+        f.put(1, 1, row, 0, Cell::default());
+    }
+    f.alias(2, 1, 1, 1);
+    f.song.order = vec![occurrence(2); 32769];
+    assert!(f
+        .song
+        .validate()
+        .unwrap_err()
+        .contains("ordered alias cells"));
+    f.song.order = vec![occurrence(1), occurrence(2)];
     f.song
         .patterns
         .get_mut(&PatternId(1))
         .unwrap()
         .tracks
         .clear();
-    let mut out = [0.0; 1024];
-    engine.block(&mut out, 512).unwrap();
-    assert!(out.iter().any(|v| *v != 0.0));
-    assert_eq!(engine.manifest, m);
+    f.kit();
+    f.put(1, 1, 0, 0, note(36, 1));
+    f.mute(0, 1);
+    f.mute(1, 1);
+    let before = f.song.clone();
+    assert!(f.song.remove_drum_pad(DrumKitId(1), PadId(1)).is_err());
+    assert_eq!(before, f.song);
 }
+
 #[test]
-fn muted_cells_do_not_change_inherited_instrument_or_velocity() {
+fn muted_locally_inherited_pad_references_survive_aliasing_and_cannot_be_deleted() {
     let mut f = Fixture::new();
-    f.song
-        .patterns
-        .get_mut(&PatternId(2))
-        .unwrap()
-        .tracks
-        .insert(
-            TrackId(1),
-            BTreeMap::from([(
-                0,
-                BTreeMap::from([(
-                    0,
-                    Cell {
-                        instrument: Some(InstrumentId(2)),
-                        velocity: Some(0.1),
-                        ..Default::default()
-                    },
-                )]),
-            )]),
-        );
-    f.song.order.push(Occurrence::new(PatternId(1)));
-    f.song.order[1].muted_tracks.insert(TrackId(1));
-    let mut p = f.song.patterns[&PatternId(1)].clone();
-    let c = p
-        .tracks
-        .get_mut(&TrackId(1))
-        .unwrap()
-        .get_mut(&0)
-        .unwrap()
-        .get_mut(&0)
-        .unwrap();
-    c.instrument = None;
-    c.velocity = None;
-    f.song.patterns.insert(PatternId(3), p);
-    f.song.order[2].pattern = PatternId(3);
-    let m = song_render::evaluate(&f.song, None).unwrap();
-    let event = m
-        .events
-        .iter()
-        .find(|e| e.position == Some((2, 0)) && matches!(e.command, Command::On { .. }))
-        .unwrap();
-    assert_eq!(event.instrument, InstrumentId(1));
-    assert!(matches!(event.command, Command::On { volume: 1.0, .. }));
+    f.kit();
+    f.put(1, 1, 0, 0, note(36, 1));
+    f.put(
+        1,
+        1,
+        1,
+        0,
+        Cell {
+            note: Note::Note(37),
+            ..Default::default()
+        },
+    );
+    f.alias(2, 2, 1, 1);
+    f.mute(0, 1);
+    f.mute(1, 2);
+    let before = f.song.clone();
+    assert!(f.song.remove_drum_pad(DrumKitId(1), PadId(2)).is_err());
+    assert_eq!(f.song, before);
+    let mut pad = f.song.drum_kits[&DrumKitId(1)].pads[&PadId(2)].clone();
+    pad.region = None;
+    assert!(f.song.upsert_drum_pad(DrumKitId(1), PadId(2), pad).is_err());
+    assert_eq!(f.song, before);
+    assert!(manifest(&f.song).events.is_empty());
 }

@@ -11,10 +11,9 @@ fn main() -> eframe::Result {
         .as_deref()
         .is_some_and(|a| a == "--help" || a == "-h")
     {
-        println!("LEVIATHAN {}\nUsage: leviathan [--project PATH]\nNo samples are bundled. Assign your own files in Audio / Export.\n--help    Show this help\n--version Show version",env!("CARGO_PKG_VERSION"));
+        println!("LEVIATHAN {}\nUsage: leviathan [--project PATH]\nUse Samples to load a WAV or FLAC file.\n--help    Show this help\n--version Show version", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
-
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1180.0, 780.0])
@@ -22,7 +21,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        concat!("LEVIATHAN ", env!("CARGO_PKG_VERSION")),
+        "Leviathan",
         options,
         Box::new(|cc| Ok(Box::new(aqua_pattern_core::desktop::Leviathan::new(cc)))),
     )

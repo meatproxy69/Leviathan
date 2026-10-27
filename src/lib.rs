@@ -1,17 +1,56 @@
 //! Sample-accurate pattrns -> phonic bridge and synchronous offline renderer.
-pub mod arrangement;
+pub mod audition;
+#[cfg(feature = "desktop")]
+pub(crate) mod audition_ui;
+pub mod break_analysis;
+pub mod break_compiler;
+pub mod cell_blocks;
+#[cfg(feature = "desktop")]
+pub(crate) mod cell_blocks_ui;
+pub mod drum_steps;
 pub mod editor;
 pub mod generation;
-pub mod pattern;
 #[cfg(feature = "desktop")]
-mod phrase_ui;
-mod phrases;
+pub(crate) mod generation_ui;
+pub mod groove;
+#[cfg(feature = "desktop")]
+pub(crate) mod groove_ui;
+pub mod marker_bank;
+#[cfg(feature = "desktop")]
+pub(crate) mod marker_bank_ui;
+pub mod mcp;
+pub mod meter_windows;
+pub mod meters;
+#[cfg(feature = "desktop")]
+pub(crate) mod multisample_ui;
+pub mod mutations;
+pub mod onset_service;
+pub mod onset_v2;
+pub mod pattern;
 pub mod project;
+pub mod resample;
+#[cfg(feature = "desktop")]
+pub(crate) mod resample_ui;
+pub mod sample_asset;
+#[cfg(feature = "desktop")]
+pub mod sample_ui;
 pub mod session;
+pub mod slice_features;
+#[cfg(feature = "desktop")]
+pub(crate) mod slice_features_ui;
 pub mod song;
 pub mod song_render;
-mod step_audio;
-pub mod transform;
+pub mod tempo;
+#[cfg(feature = "desktop")]
+pub(crate) mod tempo_ui;
+#[cfg(feature = "desktop")]
+pub(crate) mod thin_ui;
+pub mod track_mix;
+#[cfg(feature = "desktop")]
+pub(crate) mod track_mix_ui;
+#[cfg(feature = "desktop")]
+pub(crate) mod transform_ui;
+pub mod transforms;
 pub mod transport;
 pub use pattern::pattern_manifest;
 use phonic::{
@@ -225,10 +264,6 @@ pub mod jobs;
 pub mod tracker_ui;
 
 #[cfg(feature = "desktop")]
-pub mod arrangement_ui;
-
+pub(crate) mod drum_step_ui;
 #[cfg(feature = "desktop")]
-pub mod transform_ui;
-
-#[cfg(feature = "desktop")]
-pub mod generation_ui;
+pub(crate) mod pad_ui;

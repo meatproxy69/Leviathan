@@ -1,15 +1,26 @@
-//! Bounded pattrns control-side generation; only committed cells reach playback.
+//! Bounded, seeded, actual pattrns execution baked into ordinary Song cells.
+//! No scripting, IO, live generator state, or second playback authority.
 use crate::{
+    break_compiler::timing::{self, Rational},
     song::*,
-    transform::{CellChange, Summary},
+    RATE,
 };
 use pattrns::prelude::{
-    euclidean, new_note, new_polyphonic_note_sequence_emitter, BeatTimeBase, Pattern,
-    ProbabilityGate, ToFixedRhythm,
+    new_note, new_note_sequence_emitter, BeatTimeBase, Pattern as _, ProbabilityGate, ToFixedRhythm,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
+pub const VERSION: u32 = 1;
+pub const ALGORITHM: &str = "pattrns-euclidean-bake-v1";
+pub const GATE_ALGORITHM: &str = "pattrns-0.9.3/rand-0.9.5/Xoshiro256PlusPlus/seed_from_u64";
+const TICKS_PER_STEP: u64 = 1024;
+/// Conservative control-side traversal limits; distinct from musical start limits.
+pub const MAX_VISITS: usize = 65536;
+
+/// Persisted Alpha 2 generation recipe retained for lossless project migration.
+/// The recovered generator uses `GenerationConfig` and `GenerationProvenance`;
+/// this named recipe is metadata and does not replace that engine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Recipe {
@@ -22,40 +33,12 @@ pub struct Recipe {
     pub rotation: i16,
     pub probability: f32,
     pub seed: u64,
-    /// Each accepted pulse advances to the next chord; Empty sustains, Off releases.
     pub sequence: Vec<Vec<Note>>,
     pub instrument: InstrumentId,
     pub velocity: f32,
     pub pan: f32,
 }
-impl Default for Recipe {
-    fn default() -> Self {
-        Self {
-            schema: 1,
-            revision: crate::pattern::REVISION.into(),
-            rows: 16,
-            step_rows: 1,
-            cycle_steps: 8,
-            hits: 3,
-            rotation: 0,
-            probability: 1.0,
-            seed: 1,
-            sequence: vec![
-                vec![Note::Note(60)],
-                vec![Note::Note(63)],
-                vec![Note::Note(67)],
-                vec![Note::Off],
-            ],
-            instrument: InstrumentId(1),
-            velocity: 0.4,
-            pan: 0.0,
-        }
-    }
-}
 impl Recipe {
-    pub fn columns(&self) -> usize {
-        self.sequence.iter().map(Vec::len).max().unwrap_or(0)
-    }
     pub fn validate(&self) -> Result<(), String> {
         if self.schema != 1 || self.revision != crate::pattern::REVISION {
             return Err("Unsupported generation recipe schema or pattrns revision".into());
@@ -66,7 +49,7 @@ impl Recipe {
             || self.hits > self.cycle_steps
             || !(-63..=63).contains(&self.rotation)
         {
-            return Err("Generation requires 1..1024 rows, 1..64 step rows/cycle steps, hits <= cycle steps and rotation -63..63".into());
+            return Err("Invalid generation recipe timing or hit settings".into());
         }
         if !self.probability.is_finite()
             || !(0.0..=1.0).contains(&self.probability)
@@ -75,356 +58,546 @@ impl Recipe {
             || !self.pan.is_finite()
             || !(-1.0..=1.0).contains(&self.pan)
             || self.instrument.0 == 0
-        {
-            return Err("Invalid generation probability, instrument, velocity or pan".into());
-        }
-        if self.sequence.is_empty()
+            || self.sequence.is_empty()
             || self.sequence.len() > 64
             || self.sequence.iter().any(|chord| {
                 chord.is_empty()
                     || chord.len() > 8
                     || chord
                         .iter()
-                        .any(|n| matches!(n,Note::Note(p) if !(12..=127).contains(p)))
+                        .any(|n| matches!(n, Note::Note(p) if !(12..=127).contains(p)))
             })
         {
             return Err(
-                "Sequence requires 1..64 steps of 1..8 columns; MIDI pitches 12..127, off or ."
+                "Invalid generation recipe probability, instrument, sequence, velocity or pan"
                     .into(),
             );
         }
         Ok(())
     }
 }
-pub fn parse_sequence(text: &str) -> Result<Vec<Vec<Note>>, String> {
-    if text.len() > 2048 {
-        return Err("Sequence text exceeds 2048 bytes".into());
-    }
-    let result = text
-        .split_whitespace()
-        .map(|step| {
-            step.split(',')
-                .map(|note| {
-                    if note == "." {
-                        Ok(Note::Empty)
-                    } else if note.eq_ignore_ascii_case("off") {
-                        Ok(Note::Off)
-                    } else {
-                        note.parse::<u8>().map(Note::Note).map_err(|_| {
-                            "Use MIDI numbers, off, . and comma-separated chords".to_owned()
-                        })
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let recipe = Recipe {
-        sequence: result.clone(),
-        ..Default::default()
-    };
-    recipe.validate()?;
-    Ok(result)
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub enum GenerationPreset {
+    Euclidean {
+        steps: u16,
+        pulses: u16,
+        rotation: u16,
+        probability: f32,
+    },
 }
-pub fn sequence_text(sequence: &[Vec<Note>]) -> String {
-    sequence
-        .iter()
-        .map(|chord| {
-            chord
-                .iter()
-                .map(|note| match note {
-                    Note::Empty => ".".into(),
-                    Note::Off => "off".into(),
-                    Note::Note(n) => n.to_string(),
-                })
-                .collect::<Vec<_>>()
-                .join(",")
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GenerationNote {
+    pub note: u8,
+    pub velocity: f32,
 }
-#[derive(Debug, Clone, PartialEq)]
-pub struct Generated {
-    pub cells: TrackPattern,
-    pub columns: u16,
-    pub notes: usize,
-    pub offs: usize,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GenerationConfig {
+    pub version: u32,
+    pub name: String,
+    pub bars: u16,
+    pub instrument: InstrumentId,
+    pub seed: u64,
+    pub preset: GenerationPreset,
+    pub sequence: Vec<GenerationNote>,
 }
-/// A canonical exact 6000-sample row is just the carrier grid. Song tempo/LPB
-/// applies when committed cells play; generation is independent of floating tempo.
-pub fn generate(recipe: &Recipe) -> Result<Generated, String> {
-    recipe.validate()?;
-    // Pinned pattrns calls its arguments steps/pulses, but tests/source define
-    // euclidean(hit_count, cycle_length, rotation), in that order.
-    let rhythm = euclidean::euclidean(
-        recipe.hits as u32,
-        recipe.cycle_steps as u32,
-        recipe.rotation as i32,
-    )
-    .into_iter()
-    .map(|hit| if hit { recipe.probability } else { 0.0 })
-    .collect::<Vec<_>>()
-    .to_rhythm();
-    let sequence = recipe
-        .sequence
-        .iter()
-        .map(|chord| {
-            chord
-                .iter()
-                .map(|note| match note {
-                    Note::Empty => None,
-                    Note::Off => new_note(pattrns::Note::OFF),
-                    Note::Note(n) => new_note((
-                        pattrns::Note::from(*n - 12),
-                        None,
-                        recipe.velocity,
-                        recipe.pan,
-                    )),
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let mut pattern = BeatTimeBase {
-        beats_per_min: 120.0,
-        beats_per_bar: 4,
-        samples_per_sec: 48000,
-    }
-    .every_nth_beat(recipe.step_rows as f32 / 4.0)
-    .with_rhythm(rhythm)
-    .with_gate(ProbabilityGate::new(Some(recipe.seed)))
-    .emit(new_polyphonic_note_sequence_emitter(sequence));
-    let end = recipe.rows as u64 * 6000;
-    let mut result = Generated {
-        cells: TrackPattern::new(),
-        columns: recipe.columns() as u16,
-        notes: 0,
-        offs: 0,
-    };
-    let mut items = 0;
-    while let Some(item) = pattern.run_until_time(end) {
-        items += 1;
-        if items > 1024 {
-            return Err("Generation exceeds 1024 pulse items".into());
-        }
-        if item.time >= end {
-            break;
-        }
-        if item.time % 6000 != 0 {
-            return Err("Generated event is outside the exact row grid".into());
-        }
-        if let Some(event) = item.event {
-            let pattrns::Event::NoteEvents(notes) = event else {
-                return Err("Unsupported generated parameter event".into());
-            };
-            if notes.len() > result.columns as usize {
-                return Err("Generated chord exceeds selected width".into());
-            }
-            for (column, note) in notes.into_iter().enumerate() {
-                let Some(note) = note else {
-                    continue;
-                };
-                let cell = if note.note == pattrns::Note::EMPTY {
-                    continue;
-                } else if note.note == pattrns::Note::OFF {
-                    result.offs += 1;
-                    Cell {
-                        note: Note::Off,
-                        ..Default::default()
-                    }
-                } else {
-                    result.notes += 1;
-                    if result.notes > 2048 {
-                        return Err("Generation exceeds 2048 note triggers".into());
-                    }
-                    Cell {
-                        note: Note::Note(
-                            crate::pattern::midi_note(note.note).map_err(|e| e.to_string())?,
-                        ),
-                        instrument: Some(recipe.instrument),
-                        velocity: Some(note.volume),
-                        pan: Some(note.panning),
-                        ..Default::default()
-                    }
-                };
-                cell.validate_values()?;
-                result
-                    .cells
-                    .entry((item.time / 6000) as u32)
-                    .or_default()
-                    .insert(column as u16, cell);
-            }
-        }
-    }
-    Ok(result)
+/// Historical recipe and digests, never a live instrument reference or playback
+/// dependency. Ordinary editing may make content_sha256 no longer match.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GenerationProvenance {
+    pub algorithm: String,
+    pub pattrns_revision: String,
+    pub gate_algorithm: String,
+    pub config: GenerationConfig,
+    pub bpm: f64,
+    pub lines_per_beat: u16,
+    pub prefix_rows: u64,
+    pub raw_ticks: u32,
+    pub raw_sha256: String,
+    pub content_sha256: String,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WriteMode {
-    Replace,
-    Merge,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Target {
-    pub occurrence: usize,
-    pub track: TrackId,
-    pub column: u16,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GeneratedCell {
+    pub step: u32,
+    pub virtual_time: u64,
     pub row: u32,
+    pub column: u16,
+    pub frame: u64,
+    pub cell: Cell,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerationSummary {
+    pub algorithm: String,
+    pub pattern: PatternId,
+    pub track: TrackId,
+    pub occurrence: usize,
+    pub rows: u32,
+    pub columns: u16,
+    pub hits: usize,
+    pub raw_ticks: u32,
+    pub start_frame: u64,
+    pub end_frame: u64,
+    pub bpm: f64,
+    pub lines_per_beat: u16,
+    pub raw_sha256: String,
+    pub content_sha256: String,
+    pub warnings: Vec<String>,
 }
 #[derive(Debug, Clone)]
-pub struct Preview {
-    pub summary: Summary,
-    pub generated: Generated,
-    pub recipe_changed: bool,
-    original: Song,
+pub struct GenerationPreview {
+    id: String,
+    base: Song,
     candidate: Song,
+    config: GenerationConfig,
+    summary: GenerationSummary,
+    cells: Vec<GeneratedCell>,
+    provenance: GenerationProvenance,
 }
-impl Preview {
-    pub fn is_current(&self, song: &Song) -> bool {
-        &self.original == song
+impl GenerationPreview {
+    pub fn id(&self) -> &str {
+        &self.id
     }
-    pub(crate) fn into_song(self, song: &Song) -> Result<Song, String> {
-        if !self.is_current(song) {
-            return Err("Song changed since generation preview; preview again".into());
+    pub fn base(&self) -> &Song {
+        &self.base
+    }
+    pub fn candidate(&self) -> &Song {
+        &self.candidate
+    }
+    pub fn config(&self) -> &GenerationConfig {
+        &self.config
+    }
+    pub fn summary(&self) -> &GenerationSummary {
+        &self.summary
+    }
+    pub fn cells(&self) -> &[GeneratedCell] {
+        &self.cells
+    }
+    pub fn provenance(&self) -> &GenerationProvenance {
+        &self.provenance
+    }
+    pub fn commit(&self, current: &Song) -> Result<Song, String> {
+        if current != &self.base {
+            return Err("Generation preview is stale; prepare a new preview".into());
         }
-        Ok(self.candidate)
+        Ok(self.candidate.clone())
     }
 }
-pub fn preview(
-    song: &Song,
-    target: &Target,
-    name: &str,
-    recipe: &Recipe,
-    mode: WriteMode,
-) -> Result<Preview, String> {
-    song.validate()?;
-    recipe.validate()?;
-    let name = name.trim();
-    if name.is_empty() || name.chars().count() > 64 {
-        return Err("Recipe name must have 1..64 characters".into());
+fn digest(value: &impl Serialize) -> Result<String, String> {
+    Ok(crate::sample_asset::content_sha256(
+        &serde_json::to_vec(value).map_err(|e| e.to_string())?,
+    ))
+}
+/// Name and historical metadata are excluded; rows, aliases and exact stored
+/// track/cell content are included. Clones preserve this history, not regenerate.
+pub fn content_digest(pattern: &Pattern) -> Result<String, String> {
+    digest(&(pattern.rows, &pattern.track_aliases, &pattern.tracks))
+}
+pub fn content_matches(pattern: &Pattern) -> Result<Option<bool>, String> {
+    pattern
+        .generation
+        .as_ref()
+        .map(|p| content_digest(pattern).map(|d| d == p.content_sha256))
+        .transpose()
+}
+fn validate_config(config: &GenerationConfig) -> Result<(), String> {
+    if config.version != VERSION {
+        return Err("Unsupported generation version; expected 1".into());
     }
-    if !song.instruments.contains_key(&recipe.instrument) {
-        return Err("Unknown generation instrument".into());
+    let GenerationPreset::Euclidean {
+        steps,
+        pulses,
+        rotation,
+        probability,
+    } = config.preset;
+    if config.name.trim().is_empty()
+        || config.name.len() > 256
+        || !(1..=16).contains(&config.bars)
+        || config.instrument.0 == 0
+        || !(1..=128).contains(&steps)
+        || pulses == 0
+        || pulses > steps
+        || rotation >= steps
+        || !probability.is_finite()
+        || !(0.0..=1.0).contains(&probability)
+        || !(1..=16).contains(&config.sequence.len())
+    {
+        return Err("Generation requires nonblank name <=256 bytes, bars 1..16, nonzero instrument, steps 1..128, pulses 1..steps, rotation <steps, probability 0..1, and sequence 1..16".into());
     }
-    let pattern = song
-        .order
-        .get(target.occurrence)
-        .ok_or("Unknown generation occurrence")?
-        .pattern;
-    let track = song
-        .tracks
-        .get(&target.track)
-        .ok_or("Unknown generation track")?;
-    let end = target
-        .row
-        .checked_add(recipe.rows)
-        .ok_or("Generation row overflow")?;
-    let col_end = target
-        .column
-        .checked_add(recipe.columns() as u16)
-        .ok_or("Generation column overflow")?;
-    if end > song.patterns[&pattern].rows || col_end > track.note_columns {
-        return Err("Generated rectangle does not fit this pattern/track".into());
-    }
-    let generated = generate(recipe)?;
-    let before = song
-        .block(pattern, target.track)?
-        .cloned()
-        .unwrap_or_default();
-    let mut after = before.clone();
-    if mode == WriteMode::Replace {
-        for (_, columns) in after.range_mut(target.row..end) {
-            columns.retain(|col, _| *col < target.column || *col >= col_end);
+    for note in &config.sequence {
+        if !(12..=127).contains(&note.note)
+            || !note.velocity.is_finite()
+            || !(0.0..=1.0).contains(&note.velocity)
+        {
+            return Err("Generation notes/selectors must be MIDI 12..127 (pattrns +12 bridge) and velocity 0..1".into());
         }
     }
-    for (row, columns) in &generated.cells {
-        for (col, cell) in columns {
-            let row = target.row + row;
-            let col = target.column + col;
-            if mode == WriteMode::Merge
-                && before
-                    .get(&row)
-                    .and_then(|c| c.get(&col))
-                    .is_some_and(|c| *c != Cell::default())
-            {
-                return Err(format!(
-                    "Merge collision at row {row}, column {}. Choose Replace or clear the cell.",
-                    col + 1
-                ));
-            }
-            after.entry(row).or_default().insert(col, cell.clone());
+    Ok(())
+}
+impl GenerationProvenance {
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        validate_config(&self.config)?;
+        let GenerationPreset::Euclidean { steps, .. } = self.config.preset;
+        let sha = |s: &str| {
+            s.len() == 64
+                && s.bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+        };
+        if self.algorithm != ALGORITHM
+            || self.pattrns_revision != crate::pattern::REVISION
+            || self.gate_algorithm != GATE_ALGORITHM
+            || !sha(&self.raw_sha256)
+            || !sha(&self.content_sha256)
+            || !self.bpm.is_finite()
+            || !(20.0..=400.0).contains(&self.bpm)
+            || !(1..=256).contains(&self.lines_per_beat)
+            || self.raw_ticks != u32::from(steps) * u32::from(self.config.bars)
+        {
+            return Err("Invalid historical generation provenance".into());
         }
+        Ok(())
     }
-    after.retain(|_, cols| !cols.is_empty());
-    let mut summary = Summary {
-        examples: Vec::new(),
-        changed_cells: 0,
-        changed_blocks: 0,
-        detached_aliases: 0,
-        affected_positions: Vec::new(),
-        outside_scope_positions: Vec::new(),
-    };
-    let keys: BTreeSet<_> = before
+}
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct RawNote {
+    note: u8,
+    volume: f32,
+    panning: f32,
+    delay: f32,
+}
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct RawTick {
+    time: u64,
+    duration: u64,
+    note: Option<RawNote>,
+}
+fn run(config: &GenerationConfig) -> Result<Vec<RawTick>, String> {
+    let GenerationPreset::Euclidean {
+        steps,
+        pulses,
+        rotation,
+        probability,
+    } = config.preset;
+    // Pinned API names its hit count `steps` and total count `pulses`.
+    let rhythm: Vec<f32> = pattrns::prelude::euclidean::euclidean(
+        u32::from(pulses),
+        u32::from(steps),
+        i32::from(rotation),
+    )
+    .into_iter()
+    .map(|hit| if hit { probability } else { 0.0 })
+    .collect();
+    let sequence = config
+        .sequence
         .iter()
-        .chain(&after)
-        .flat_map(|(r, cols)| cols.keys().map(move |c| (*r, *c)))
+        .map(|n| new_note((pattrns::Note::from(n.note - 12), None, n.velocity, 0.0)))
         .collect();
-    for (row, column) in keys {
-        let a = before
-            .get(&row)
-            .and_then(|c| c.get(&column))
-            .cloned()
-            .unwrap_or_default();
-        let b = after
-            .get(&row)
-            .and_then(|c| c.get(&column))
-            .cloned()
-            .unwrap_or_default();
-        if a != b {
-            summary.changed_cells += 1;
-            if summary.examples.len() < 12 {
-                summary.examples.push(CellChange {
-                    pattern,
-                    track: target.track,
-                    row,
-                    column,
-                    before: a,
-                    after: b,
-                });
+    let time = BeatTimeBase {
+        beats_per_min: 60.0,
+        beats_per_bar: 4,
+        samples_per_sec: TICKS_PER_STEP as u32,
+    };
+    let mut pattern = time
+        .every_nth_beat(1.0)
+        .with_rhythm(rhythm.to_rhythm())
+        .with_gate(ProbabilityGate::new(Some(config.seed)))
+        .emit(new_note_sequence_emitter(sequence));
+    let count = usize::from(steps) * usize::from(config.bars);
+    let end = count as u64 * TICKS_PER_STEP;
+    let mut raw = Vec::with_capacity(count);
+    while let Some(event) = pattern.run_until_time(end) {
+        if raw.len() >= count
+            || event.time != raw.len() as u64 * TICKS_PER_STEP
+            || event.duration != TICKS_PER_STEP
+        {
+            return Err("pattrns stream violates bounded integral step contract".into());
+        }
+        let note = match event.event {
+            None => None,
+            Some(pattrns::Event::NoteEvents(mut notes)) if notes.len() == 1 => {
+                let note = notes
+                    .pop()
+                    .flatten()
+                    .ok_or("pattrns emitted unexpected empty note")?;
+                if !note.note.is_note_on()
+                    || note.instrument.is_some()
+                    || note.delay != 0.0
+                    || note.panning != 0.0
+                {
+                    return Err("pattrns emitted unsupported generated note attributes".into());
+                }
+                Some(RawNote {
+                    note: note.note as u8,
+                    volume: note.volume,
+                    panning: note.panning,
+                    delay: note.delay,
+                })
             }
+            _ => return Err("pattrns emitted unsupported event shape".into()),
+        };
+        raw.push(RawTick {
+            time: event.time,
+            duration: event.duration,
+            note,
+        });
+    }
+    if raw.len() != count {
+        return Err("pattrns ended before the requested bounded tick count".into());
+    }
+    Ok(raw)
+}
+/// Count empty blocks and row containers as real work too. This runs before
+/// full Song validation, which may itself inspect ordered stored drum cells.
+/// It neither copies cells nor expands aliases/repeats into an event stream.
+pub(crate) fn check_work(song: &Song, append: bool) -> Result<(), String> {
+    let extra = usize::from(append);
+    let blocks = song.order.len().checked_add(extra).and_then(|orders| {
+        song.track_order
+            .len()
+            .checked_add(extra)
+            .and_then(|tracks| orders.checked_mul(tracks))
+    });
+    if blocks.is_none_or(|n| n > MAX_VISITS) {
+        return Err("Generation exceeds 65536 ordered track blocks; reduce tracks or arrangement occurrences before generation".into());
+    }
+    let mut aliases = 0usize;
+    let mut terminals = BTreeMap::new();
+    let mut patterns = BTreeMap::new();
+    for (&id, pattern) in &song.patterns {
+        aliases = aliases.saturating_add(pattern.track_aliases.len());
+        if aliases > 4096 {
+            return Err("Generation source exceeds 4096 track aliases".into());
+        }
+        let (mut row_count, mut cell_count) = (0usize, 0usize);
+        for &track in pattern.tracks.keys().chain(pattern.track_aliases.keys()) {
+            let terminal = song.resolve_track_source(id, track)?;
+            let (rows, cells) = *terminals.entry(terminal).or_insert_with(|| {
+                song.patterns[&terminal.0]
+                    .tracks
+                    .get(&terminal.1)
+                    .map_or((0, 0), |rows| {
+                        (
+                            rows.len(),
+                            rows.values()
+                                .fold(0usize, |n, cells| n.saturating_add(cells.len())),
+                        )
+                    })
+            });
+            row_count = row_count.saturating_add(rows);
+            cell_count = cell_count.saturating_add(cells);
+        }
+        patterns.insert(id, (row_count, cell_count));
+    }
+    let (mut rows, mut cells) = (0usize, 0usize);
+    for occurrence in &song.order {
+        let &(add_rows, add_cells) = patterns
+            .get(&occurrence.pattern)
+            .ok_or("Generation references unknown ordered pattern")?;
+        rows = rows.saturating_add(add_rows);
+        cells = cells.saturating_add(add_cells);
+        if rows > MAX_VISITS {
+            return Err("Generation exceeds 65536 ordered row-container visits, including empty or muted rows; reduce stored rows or repeats".into());
+        }
+        if cells > MAX_VISITS {
+            return Err("Generation exceeds 65536 ordered cell visits, including default or muted cells; reduce stored cells or repeats".into());
         }
     }
+    Ok(())
+}
+/// Pure control-side preview: no asset IO or decoding. The existing evaluator
+/// validates aggregate musical budgets and verifies exact generated ON frames.
+pub fn preview(song: &Song, config: GenerationConfig) -> Result<GenerationPreview, String> {
+    crate::project::check_serialized_size(song)?;
+    check_work(song, true)?;
+    song.validate()?;
+    validate_config(&config)?;
+    let instrument = song
+        .instruments
+        .get(&config.instrument)
+        .ok_or("Unknown generation instrument")?;
+    match instrument.kind {
+        InstrumentKind::Pitched if instrument.sample.is_none() && instrument.region.is_none() => {
+            return Err("Generation instrument has no assigned sample or region".into())
+        }
+        InstrumentKind::Multisample { map } => {
+            for choice in &config.sequence {
+                song.select_keyzone(map, choice.note, choice.velocity)?;
+            }
+        }
+        InstrumentKind::DrumKit { kit } => {
+            for choice in &config.sequence {
+                if !song.drum_kits[&kit]
+                    .pads
+                    .values()
+                    .any(|pad| pad.note == choice.note && pad.has_source())
+                {
+                    return Err(format!(
+                        "Generation kit selector {} is unmapped or has no assigned region",
+                        choice.note
+                    ));
+                }
+            }
+        }
+        _ => (),
+    }
+    let raw = run(&config)?;
+    if raw.iter().all(|tick| tick.note.is_none()) {
+        return Err("Generation emitted no hits; change seed, probability or rhythm (no fallback note is inserted)".into());
+    }
+    let track = TrackId(
+        song.tracks
+            .keys()
+            .next_back()
+            .map_or(0, |id| id.0)
+            .checked_add(1)
+            .ok_or("Generation track ID space exhausted")?,
+    );
+    let pattern_id = PatternId(
+        song.patterns
+            .keys()
+            .next_back()
+            .map_or(0, |id| id.0)
+            .checked_add(1)
+            .ok_or("Generation pattern ID space exhausted")?,
+    );
+    let prefix = song.order.iter().try_fold(0u64, |n, occurrence| {
+        n.checked_add(u64::from(song.patterns[&occurrence.pattern].rows))
+            .ok_or("Generation prefix overflow")
+    })?;
+    let rows = u32::from(config.bars) * 4 * u32::from(song.lines_per_beat);
+    let bpm = Rational::bpm(song.bpm);
+    let per_row = f64::from(RATE) * 60.0 / (song.bpm * f64::from(song.lines_per_beat));
+    let GenerationPreset::Euclidean { steps, .. } = config.preset;
+    let mut data = TrackPattern::new();
+    let mut cells = Vec::new();
+    let mut columns = 1u16;
+    for (step, tick) in raw.iter().enumerate() {
+        let Some(note) = &tick.note else { continue };
+        let beat = Rational::new(step as u128 * 4, u128::from(steps));
+        let (row, delay, frame) = timing::encode(beat, prefix, song.lines_per_beat, per_row, bpm)?;
+        let intended_row = step as u64 * 4 * u64::from(song.lines_per_beat) / u64::from(steps);
+        if row >= rows || u64::from(row) != intended_row {
+            return Err("Exact generation timestamp cannot be represented in its intended row; change BPM or LPB".into());
+        }
+        let row_cells = data.entry(row).or_default();
+        let column =
+            u16::try_from(row_cells.len()).map_err(|_| "Generation column budget exceeded")?;
+        if column >= 256 {
+            return Err("Generation exceeds 256 note columns".into());
+        }
+        columns = columns.max(column + 1);
+        let cell = Cell {
+            note: Note::Note(
+                note.note
+                    .checked_add(12)
+                    .ok_or("pattrns pitch conversion overflow")?,
+            ),
+            instrument: Some(config.instrument),
+            velocity: Some(note.volume),
+            pan: Some(note.panning),
+            delay: if delay == 0.0 { None } else { Some(delay) },
+            ..Cell::default()
+        };
+        row_cells.insert(column, cell.clone());
+        cells.push(GeneratedCell {
+            step: step as u32,
+            virtual_time: tick.time,
+            row,
+            column,
+            frame,
+            cell,
+        });
+    }
+    let mut pattern = Pattern {
+        generation: None,
+        name: config.name.clone(),
+        rows,
+        track_aliases: BTreeMap::new(),
+        tracks: BTreeMap::from([(track, data)]),
+    };
+    let raw_sha256 = digest(&raw)?;
+    let content_sha256 = content_digest(&pattern)?;
+    let provenance = GenerationProvenance {
+        algorithm: ALGORITHM.into(),
+        pattrns_revision: crate::pattern::REVISION.into(),
+        gate_algorithm: GATE_ALGORITHM.into(),
+        config: config.clone(),
+        bpm: song.bpm,
+        lines_per_beat: song.lines_per_beat,
+        prefix_rows: prefix,
+        raw_ticks: raw.len() as u32,
+        raw_sha256: raw_sha256.clone(),
+        content_sha256: content_sha256.clone(),
+    };
+    pattern.generation = Some(provenance.clone());
     let mut candidate = song.clone();
-    if summary.changed_cells > 0 {
-        summary.changed_blocks = 1;
-        let p = candidate.patterns.get_mut(&pattern).unwrap();
-        if p.aliases.remove(&target.track).is_some() {
-            summary.detached_aliases = 1;
-        }
-        if after.is_empty() {
-            p.tracks.remove(&target.track);
-        } else {
-            p.tracks.insert(target.track, after);
-        }
-    }
-    let recipe_changed = song.generation_recipes.get(name) != Some(recipe);
-    candidate
-        .generation_recipes
-        .insert(name.into(), recipe.clone());
+    candidate.tracks.insert(
+        track,
+        Track {
+            name: config.name.clone(),
+            note_columns: columns,
+        },
+    );
+    candidate.track_order.push(track);
+    candidate.patterns.insert(pattern_id, pattern);
+    let occurrence = candidate.order.len();
+    candidate.order.push(Occurrence {
+        pattern: pattern_id,
+        muted_tracks: Default::default(),
+        section: None,
+    });
+    crate::project::check_serialized_size(&candidate)?;
+    check_work(&candidate, false)?;
     candidate.validate()?;
-    for (i, o) in song.order.iter().enumerate() {
-        if song.track_order.iter().any(|t| {
-            song.block(o.pattern, *t).ok().flatten()
-                != candidate.block(o.pattern, *t).ok().flatten()
-        }) {
-            summary.affected_positions.push(i);
-            if i != target.occurrence {
-                summary.outside_scope_positions.push(i);
-            }
-        }
+    let manifest = crate::song_render::evaluate_model(&candidate)?;
+    let actual: Vec<_> = manifest
+        .events
+        .iter()
+        .filter(|event| {
+            event.track == track && matches!(event.command, crate::song_render::Command::On { .. })
+        })
+        .map(|event| (event.frame, event.position, event.column))
+        .collect();
+    let expected: Vec<_> = cells
+        .iter()
+        .map(|cell| (cell.frame, Some((occurrence, cell.row)), cell.column))
+        .collect();
+    if actual != expected {
+        return Err("Generated event frames differ from exact pattrns timing conversion".into());
     }
-    Ok(Preview {
-        summary,
-        generated,
-        recipe_changed,
-        original: song.clone(),
+    let exact_end = Rational::new(
+        u128::from(prefix) + u128::from(rows),
+        u128::from(song.lines_per_beat),
+    )
+    .scale(u64::from(RATE) * 60)?
+    .div(bpm)?
+    .round()?;
+    if manifest.musical_frames != exact_end {
+        return Err(
+            "Generated musical end is not exactly representable at this BPM/LPB/prefix".into(),
+        );
+    }
+    let start_frame = Rational::new(u128::from(prefix), u128::from(song.lines_per_beat))
+        .scale(u64::from(RATE) * 60)?
+        .div(bpm)?
+        .round()?;
+    let summary = GenerationSummary { algorithm: ALGORITHM.into(), pattern: pattern_id, track, occurrence, rows, columns, hits: cells.len(), raw_ticks: raw.len() as u32, start_frame, end_frame: exact_end, bpm: song.bpm, lines_per_beat: song.lines_per_beat, raw_sha256, content_sha256, warnings: vec![
+        "Appends a new ordinary pattern and track; Song BPM/LPB and existing cells stay unchanged. Extending SongEnd may extend held notes/OneShot tails and allow previously end-truncated phrase child notes to execute in this section.".into(),
+        "Lowest free column per row prevents collisions; columns are reused in later rows. Ordinary note replacement, kit gate/choke and SongEnd rules apply; pattrns event duration is NOT imported as note length. Same-instrument kit choke may release older tracks.".into(),
+        "Sequence advances only on emitted hits; seeded probability runs continuously across bars. Probability 0 or 1 consumes no random gate draws. MIDI 12..127 is the current pattrns +12 bridge range; kit notes select pads, not pitch.".into(),
+        "Provenance is historical, not live generation: ordinary edits, later BPM/LPB changes, repeats or aliases do not regenerate or promise the original absolute frame proof. Pure preview caps prospective ordered track blocks, resolved row-container visits and cell visits separately at 65536, including empty/default/muted content. It conservatively enforces the pretty project 8 MiB limit using captured paths (save may shorten them); unresolved relative paths and other asset/path checks still belong to save/export. No asset IO, audio/clipping or physical-host check is performed by preview.".into(),
+    ] };
+    let id = digest(&(ALGORITHM, song, &config, &candidate))?;
+    Ok(GenerationPreview {
+        id,
+        base: song.clone(),
         candidate,
+        config,
+        summary,
+        cells,
+        provenance,
     })
 }

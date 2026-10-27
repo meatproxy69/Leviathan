@@ -17,6 +17,7 @@ fn fixture_and_serialization_preserve_content_and_ids() {
     let mut song = example_song();
     song.validate().unwrap();
     assert_eq!(song.tracks.len(), 4);
+    assert_eq!(song.instruments.len(), 4);
     assert_eq!(song.patterns[&PatternId(1)].rows, 32);
     assert_eq!(song.patterns[&PatternId(2)].rows, 64);
     assert_eq!(
@@ -31,36 +32,6 @@ fn fixture_and_serialization_preserve_content_and_ids() {
     restored.validate().unwrap();
     assert_eq!(restored, song);
     assert_eq!(serde_json::to_string(&restored).unwrap(), json);
-}
-
-#[test]
-fn new_song_template_has_24_blank_single_column_channels_and_instruments() {
-    let song = new_song_template();
-    song.validate().unwrap();
-    assert_eq!(song.tracks.len(), 24);
-    assert_eq!(song.instruments.len(), 24);
-    assert_eq!(song.track_order.len(), 24);
-    assert!(song.tracks.values().all(|track| track.note_columns == 1));
-    assert!(song.patterns[&PatternId(1)].tracks.is_empty());
-    assert_eq!(song.order.len(), 1);
-    assert_eq!(example_song().tracks.len(), 4);
-}
-
-#[test]
-fn startup_song_expands_fixture_without_changing_its_content_or_layout() {
-    let fixture = example_song();
-    let startup = startup_song();
-    startup.validate().unwrap();
-    assert_eq!(startup.tracks.len(), 24);
-    assert_eq!(startup.instruments.len(), 24);
-    assert_eq!(startup.track_order[..4], fixture.track_order);
-    for id in fixture.track_order {
-        assert_eq!(startup.tracks[&id], fixture.tracks[&id]);
-    }
-    for (id, pattern) in fixture.patterns {
-        assert_eq!(startup.patterns[&id], pattern);
-    }
-    assert_eq!(startup.order, fixture.order);
 }
 #[test]
 fn repeat_shares_content_clone_is_independent_and_errors_are_atomic() {
@@ -127,9 +98,10 @@ fn rejects_dangling_references_and_invalid_track_order() {
     song.instruments.insert(
         InstrumentId(0),
         Instrument {
-            phrases: Default::default(),
             name: String::new(),
+            kind: InstrumentKind::Pitched,
             sample: None,
+            region: None,
         },
     );
     assert!(song.validate().is_err());

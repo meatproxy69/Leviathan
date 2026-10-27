@@ -336,7 +336,7 @@ fn background_export_owns_snapshot_while_editor_changes() {
     let mut f = Fixture::new();
     let mut jobs = Jobs::default();
     jobs.start(Request::SongExport {
-        song: f.song.clone(),
+        song: Box::new(f.song.clone()),
         project_dir: None,
         output: f.path("snapshot.wav"),
     })
@@ -410,13 +410,8 @@ fn sample_assignment_is_protected_validated_and_undoable() {
         .unwrap();
     assert!(e.dirty);
     assert_eq!(
-        e.song.instruments[&InstrumentId(1)]
-            .sample
-            .as_ref()
-            .unwrap()
-            .canonicalize()
-            .unwrap(),
-        f.path("sample.wav").canonicalize().unwrap()
+        e.song.instruments[&InstrumentId(1)].sample,
+        Some(f.path("sample.wav"))
     );
     e.undo();
     assert_eq!(e.song.instruments[&InstrumentId(1)].sample, None);

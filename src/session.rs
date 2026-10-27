@@ -2,7 +2,7 @@
 use crate::{
     editor::Editor,
     project::{self, SaveMode},
-    song::new_song_template,
+    song::new_song,
 };
 use std::path::PathBuf;
 #[derive(Debug, Clone)]
@@ -27,6 +27,17 @@ pub struct Session {
 }
 impl Session {
     pub fn request(&mut self, editor: &mut Editor, action: Action) -> Result<(), String> {
+        if self.close_ready {
+            return Err("Project is closing".into());
+        }
+        if self.pending.is_some() || self.overwrite.is_some() {
+            return Err("Resolve the current project confirmation first".into());
+        }
+        // A staged Open must keep the same target if a directory alias or CWD changes.
+        let action = match action {
+            Action::Open(path) => Action::Open(project::absolute(&path)?),
+            action => action,
+        };
         if editor.dirty {
             self.pending = Some(action);
             Ok(())
@@ -37,7 +48,7 @@ impl Session {
     fn execute(&mut self, editor: &mut Editor, action: Action) -> Result<(), String> {
         match action {
             Action::New => {
-                let song = new_song_template();
+                let song = new_song();
                 editor.replace_document(song)?;
                 self.path = None;
                 self.notice = "New song".into();
@@ -58,6 +69,9 @@ impl Session {
     }
     /// Failed load keeps both the current document and the pending decision intact.
     pub fn discard(&mut self, editor: &mut Editor) -> Result<(), String> {
+        if self.overwrite.is_some() {
+            return Err("Resolve the overwrite confirmation first".into());
+        }
         if let Some(action) = self.pending.clone() {
             self.execute(editor, action)?;
             self.pending = None;
@@ -70,14 +84,14 @@ impl Session {
         path: PathBuf,
         resume: bool,
     ) -> Result<(), String> {
-        // Capture an absolute target now so confirmation cannot be redirected by form edits.
-        let path = if path.is_absolute() {
-            path
-        } else {
-            std::env::current_dir()
-                .map_err(|e| e.to_string())?
-                .join(path)
-        };
+        if self.close_ready {
+            return Err("Project is closing".into());
+        }
+        if self.overwrite.is_some() || (self.pending.is_some() && !resume) {
+            return Err("Resolve the current project confirmation first".into());
+        }
+        // Capture the canonical parent, not just CWD, before asking for confirmation.
+        let path = project::absolute(&path)?;
         match std::fs::symlink_metadata(&path) {
             Ok(_) => {
                 self.overwrite = Some(Overwrite {

@@ -81,7 +81,7 @@ No audio assets or upstream implementation sources are distributed here.
 - [crunchy 0.2.4](licenses/crunchy-0.2.4/PACKAGE-NOTICE.md): MIT.
 - [cursor-icon 1.2.0](licenses/cursor-icon-1.2.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR Zlib.
 - [dashmap 6.2.1](licenses/dashmap-6.2.1/PACKAGE-NOTICE.md): MIT.
-- [dasp_sample 0.11.0](licenses/dasp_sample-0.11.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/sample/.
+- [dasp_sample 0.11.0](licenses/dasp_sample-0.11.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [derive_more 2.1.1](licenses/derive_more-2.1.1/PACKAGE-NOTICE.md): MIT.
 - [derive_more-impl 2.1.1](licenses/derive_more-impl-2.1.1/PACKAGE-NOTICE.md): MIT.
 - [dispatch 0.2.0](licenses/dispatch-0.2.0/PACKAGE-NOTICE.md): MIT.
@@ -91,22 +91,22 @@ No audio assets or upstream implementation sources are distributed here.
 - [document-features 0.2.12](licenses/document-features-0.2.12/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [downcast-rs 1.2.1](licenses/downcast-rs-1.2.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
 - [dpi 0.1.2](licenses/dpi-0.1.2/PACKAGE-NOTICE.md): Apache-2.0 AND MIT.
-- [ecolor 0.33.3](licenses/ecolor-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
-- [eframe 0.33.3](licenses/eframe-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
-- [egui 0.33.3](licenses/egui-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
-- [egui-wgpu 0.33.3](licenses/egui-wgpu-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
-- [egui-winit 0.33.3](licenses/egui-winit-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
-- [egui_glow 0.33.3](licenses/egui_glow-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
+- [ecolor 0.33.3](licenses/ecolor-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [eframe 0.33.3](licenses/eframe-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [egui 0.33.3](licenses/egui-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [egui-wgpu 0.33.3](licenses/egui-wgpu-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [egui-winit 0.33.3](licenses/egui-winit-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [egui_glow 0.33.3](licenses/egui_glow-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [either 1.19.0](licenses/either-1.19.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
-- [emath 0.33.3](licenses/emath-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
+- [emath 0.33.3](licenses/emath-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [emscripten-rs-macros 0.1.2](licenses/emscripten-rs-macros-0.1.2/PACKAGE-NOTICE.md): MIT.
 - [emscripten_rs_sys 0.1.3](licenses/emscripten_rs_sys-0.1.3/PACKAGE-NOTICE.md): MIT.
 - [encoding_rs 0.8.42](licenses/encoding_rs-0.8.42/PACKAGE-NOTICE.md): (Apache-2.0 OR MIT) AND BSD-3-Clause.
 - [endi 1.1.1](licenses/endi-1.1.1/PACKAGE-NOTICE.md): MIT.
 - [enumflags2 0.7.12](licenses/enumflags2-0.7.12/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [enumflags2_derive 0.7.12](licenses/enumflags2_derive-0.7.12/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
-- [epaint 0.33.3](licenses/epaint-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/egui/.
-- [epaint_default_fonts 0.33.3](licenses/epaint_default_fonts-0.33.3/PACKAGE-NOTICE.md): (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0. Workspace notices: licenses/upstream/egui/.
+- [epaint 0.33.3](licenses/epaint-0.33.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [epaint_default_fonts 0.33.3](licenses/epaint_default_fonts-0.33.3/PACKAGE-NOTICE.md): (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0.
 - [equivalent 1.0.3](licenses/equivalent-1.0.3/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
 - [errno 0.3.14](licenses/errno-0.3.14/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [error-code 3.4.0](licenses/error-code-3.4.0/PACKAGE-NOTICE.md): BSL-1.0.
@@ -134,7 +134,7 @@ No audio assets or upstream implementation sources are distributed here.
 - [gethostname 1.1.0](licenses/gethostname-1.1.0/PACKAGE-NOTICE.md): Apache-2.0.
 - [getrandom 0.3.4](licenses/getrandom-0.3.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [getrandom 0.4.3](licenses/getrandom-0.4.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
-- [gl_generator 0.14.0](licenses/gl_generator-0.14.0/PACKAGE-NOTICE.md): Apache-2.0. Workspace notices: licenses/upstream/gl/.
+- [gl_generator 0.14.0](licenses/gl_generator-0.14.0/PACKAGE-NOTICE.md): Apache-2.0.
 - [glob 0.3.4](licenses/glob-0.3.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [glow 0.16.0](licenses/glow-0.16.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR Zlib.
 - [glutin 0.32.3](licenses/glutin-0.32.3/PACKAGE-NOTICE.md): Apache-2.0.
@@ -174,7 +174,7 @@ No audio assets or upstream implementation sources are distributed here.
 - [jni-sys-macros 0.4.1](licenses/jni-sys-macros-0.4.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [jobserver 0.1.35](licenses/jobserver-0.1.35/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [js-sys 0.3.106](licenses/js-sys-0.3.106/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
-- [khronos_api 3.1.0](licenses/khronos_api-3.1.0/PACKAGE-NOTICE.md): Apache-2.0. Workspace notices: licenses/upstream/gl/.
+- [khronos_api 3.1.0](licenses/khronos_api-3.1.0/PACKAGE-NOTICE.md): Apache-2.0.
 - [lazy_static 1.5.1](licenses/lazy_static-1.5.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [libc 0.2.191](licenses/libc-0.2.191/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [libloading 0.7.4](licenses/libloading-0.7.4/PACKAGE-NOTICE.md): ISC.
@@ -248,13 +248,13 @@ No audio assets or upstream implementation sources are distributed here.
 - [parking_lot_core 0.9.12](licenses/parking_lot_core-0.9.12/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [parse_cfg 4.1.1](licenses/parse_cfg-4.1.1/PACKAGE-NOTICE.md): CC0-1.0 OR MIT.
 - [paste 1.0.15](licenses/paste-1.0.15/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
-- [pattrns 0.9.3](licenses/pattrns-0.9.3/PACKAGE-NOTICE.md): GNU AFFERO.
+- [pattrns 0.9.3](licenses/pattrns-0.9.3/PACKAGE-NOTICE.md): AGPL-3.0 (LICENSE verified; upstream metadata: GNU AFFERO).
 - [percent-encoding 2.3.2](licenses/percent-encoding-2.3.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [pest 2.9.4](licenses/pest-2.9.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [pest_derive 2.9.4](licenses/pest_derive-2.9.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [pest_generator 2.9.4](licenses/pest_generator-2.9.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [pest_meta 2.9.4](licenses/pest_meta-2.9.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
-- [phonic 0.16.0](licenses/phonic-0.16.0/PACKAGE-NOTICE.md): 	AGPL-3.0.
+- [phonic 0.16.0](licenses/phonic-0.16.0/PACKAGE-NOTICE.md): AGPL-3.0.
 - [pin-project 1.1.13](licenses/pin-project-1.1.13/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
 - [pin-project-internal 1.1.13](licenses/pin-project-internal-1.1.13/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
 - [pin-project-lite 0.2.17](licenses/pin-project-lite-0.2.17/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
@@ -269,12 +269,13 @@ No audio assets or upstream implementation sources are distributed here.
 - [potential_utf 0.1.6](licenses/potential_utf-0.1.6/PACKAGE-NOTICE.md): Unicode-3.0.
 - [ppv-lite86 0.2.21](licenses/ppv-lite86-0.2.21/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [prettyplease 0.2.37](licenses/prettyplease-0.2.37/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [primal-check 0.3.4](licenses/primal-check-0.3.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [proc-macro-crate 3.5.0](licenses/proc-macro-crate-3.5.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [proc-macro2 1.0.107](licenses/proc-macro2-1.0.107/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
-- [profiling 1.0.18](licenses/profiling-1.0.18/PACKAGE-NOTICE.md): MIT OR Apache-2.0. Workspace notices: licenses/upstream/profiling/.
+- [profiling 1.0.18](licenses/profiling-1.0.18/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [psm 0.1.24](licenses/psm-0.1.24/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
-- [pulp 0.21.5](licenses/pulp-0.21.5/PACKAGE-NOTICE.md): MIT. Workspace notices: licenses/upstream/pulp/.
-- [pulp-macro 0.1.1](licenses/pulp-macro-0.1.1/PACKAGE-NOTICE.md): MIT. Workspace notices: licenses/upstream/pulp/.
+- [pulp 0.21.5](licenses/pulp-0.21.5/PACKAGE-NOTICE.md): MIT.
+- [pulp-macro 0.1.1](licenses/pulp-macro-0.1.1/PACKAGE-NOTICE.md): MIT.
 - [pxfm 0.1.30](licenses/pxfm-0.1.30/PACKAGE-NOTICE.md): BSD-3-Clause OR Apache-2.0.
 - [quick-error 2.0.1](licenses/quick-error-2.0.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
 - [quick-xml 0.41.0](licenses/quick-xml-0.41.0/PACKAGE-NOTICE.md): MIT.
@@ -287,6 +288,7 @@ No audio assets or upstream implementation sources are distributed here.
 - [rand_xoshiro 0.7.0](licenses/rand_xoshiro-0.7.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [raw-window-handle 0.6.2](licenses/raw-window-handle-0.6.2/PACKAGE-NOTICE.md): MIT OR Apache-2.0 OR Zlib.
 - [rb 0.4.1](licenses/rb-0.4.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
+- [realfft 3.5.0](licenses/realfft-3.5.0/PACKAGE-NOTICE.md): MIT.
 - [reborrow 0.5.5](licenses/reborrow-0.5.5/PACKAGE-NOTICE.md): MIT.
 - [redox_syscall 0.4.1](licenses/redox_syscall-0.4.1/PACKAGE-NOTICE.md): MIT.
 - [redox_syscall 0.5.18](licenses/redox_syscall-0.5.18/PACKAGE-NOTICE.md): MIT.
@@ -301,6 +303,7 @@ No audio assets or upstream implementation sources are distributed here.
 - [rustc-hash 1.1.0](licenses/rustc-hash-1.1.0/PACKAGE-NOTICE.md): Apache-2.0/MIT.
 - [rustc-hash 2.1.3](licenses/rustc-hash-2.1.3/PACKAGE-NOTICE.md): Apache-2.0 OR MIT.
 - [rustc_version 0.4.1](licenses/rustc_version-0.4.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [rustfft 6.4.1](licenses/rustfft-6.4.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [rustix 0.38.44](licenses/rustix-0.38.44/PACKAGE-NOTICE.md): Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT.
 - [rustix 1.1.5](licenses/rustix-1.1.5/PACKAGE-NOTICE.md): Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT.
 - [rustversion 1.0.23](licenses/rustversion-1.0.23/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
@@ -329,19 +332,20 @@ No audio assets or upstream implementation sources are distributed here.
 - [stable_deref_trait 1.2.1](licenses/stable_deref_trait-1.2.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [stacker 0.1.25](licenses/stacker-0.1.25/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [static_assertions 1.1.0](licenses/static_assertions-1.1.0/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
+- [strength_reduce 0.2.4](licenses/strength_reduce-0.2.4/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [strum 0.28.0](licenses/strum-0.28.0/PACKAGE-NOTICE.md): MIT.
 - [strum_macros 0.28.0](licenses/strum_macros-0.28.0/PACKAGE-NOTICE.md): MIT.
-- [symphonia 0.5.5](licenses/symphonia-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
-- [symphonia-bundle-flac 0.5.5](licenses/symphonia-bundle-flac-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
-- [symphonia-bundle-mp3 0.5.5](licenses/symphonia-bundle-mp3-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
-- [symphonia-codec-adpcm 0.5.5](licenses/symphonia-codec-adpcm-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
-- [symphonia-codec-alac 0.5.5](licenses/symphonia-codec-alac-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
-- [symphonia-codec-pcm 0.5.5](licenses/symphonia-codec-pcm-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
-- [symphonia-core 0.5.5](licenses/symphonia-core-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
-- [symphonia-format-ogg 0.5.5](licenses/symphonia-format-ogg-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
-- [symphonia-format-riff 0.5.5](licenses/symphonia-format-riff-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
-- [symphonia-metadata 0.5.5](licenses/symphonia-metadata-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
-- [symphonia-utils-xiph 0.5.5](licenses/symphonia-utils-xiph-0.5.5/PACKAGE-NOTICE.md): MPL-2.0. Workspace notices: licenses/upstream/symphonia/.
+- [symphonia 0.5.5](licenses/symphonia-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
+- [symphonia-bundle-flac 0.5.5](licenses/symphonia-bundle-flac-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
+- [symphonia-bundle-mp3 0.5.5](licenses/symphonia-bundle-mp3-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
+- [symphonia-codec-adpcm 0.5.5](licenses/symphonia-codec-adpcm-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
+- [symphonia-codec-alac 0.5.5](licenses/symphonia-codec-alac-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
+- [symphonia-codec-pcm 0.5.5](licenses/symphonia-codec-pcm-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
+- [symphonia-core 0.5.5](licenses/symphonia-core-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
+- [symphonia-format-ogg 0.5.5](licenses/symphonia-format-ogg-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
+- [symphonia-format-riff 0.5.5](licenses/symphonia-format-riff-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
+- [symphonia-metadata 0.5.5](licenses/symphonia-metadata-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
+- [symphonia-utils-xiph 0.5.5](licenses/symphonia-utils-xiph-0.5.5/PACKAGE-NOTICE.md): MPL-2.0.
 - [syn 2.0.119](licenses/syn-2.0.119/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [syn 3.0.9](licenses/syn-3.0.9/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [synstructure 0.14.0](licenses/synstructure-0.14.0/PACKAGE-NOTICE.md): MIT.
@@ -359,6 +363,7 @@ No audio assets or upstream implementation sources are distributed here.
 - [tracing 0.1.44](licenses/tracing-0.1.44/PACKAGE-NOTICE.md): MIT.
 - [tracing-attributes 0.1.31](licenses/tracing-attributes-0.1.31/PACKAGE-NOTICE.md): MIT.
 - [tracing-core 0.1.36](licenses/tracing-core-0.1.36/PACKAGE-NOTICE.md): MIT.
+- [transpose 0.2.3](licenses/transpose-0.2.3/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [ttf-parser 0.25.1](licenses/ttf-parser-0.25.1/PACKAGE-NOTICE.md): MIT OR Apache-2.0.
 - [type-map 0.5.1](licenses/type-map-0.5.1/PACKAGE-NOTICE.md): MIT/Apache-2.0.
 - [ucd-trie 0.1.7](licenses/ucd-trie-0.1.7/PACKAGE-NOTICE.md): MIT OR Apache-2.0.

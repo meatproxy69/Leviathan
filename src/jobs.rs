@@ -17,7 +17,7 @@ pub struct SampleInfo {
 pub enum Request {
     Load(PathBuf),
     SongExport {
-        song: crate::song::Song,
+        song: Box<crate::song::Song>,
         project_dir: Option<PathBuf>,
         output: PathBuf,
     },
