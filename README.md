@@ -50,9 +50,8 @@ it from the command line.
 ## Alpha 2 downloads
 
 **Version `v0.1.0-alpha.2` · Early alpha · Keep backups of your projects.**
-The Windows and Linux packages are intended to be published together on the
+The Windows and Linux packages are available together on the
 [Alpha 2 release page](https://github.com/meatproxy69/Leviathan/releases/tag/v0.1.0-alpha.2).
-This page and its asset links may not be available until the release is published.
 
 | Download | Package |
 | --- | --- |
